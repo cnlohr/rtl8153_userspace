@@ -37,7 +37,7 @@ int main()
 	iface->recv_cb = recv_cb;
 	iface->media_change_cb = media_change_cb;
 	printf( "%s\n", iface->descriptor );
-	while( iface->poll( iface, 0 ) )
+	while( !iface->poll( iface, 100000 ) )
 	{
 
 	}

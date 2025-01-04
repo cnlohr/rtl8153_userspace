@@ -326,6 +326,7 @@ static int r8153_ecm_mdio_write(netinterface_rtl8153 * iface, int reg, int val)
 static void cb_in( struct libusb_transfer *transfer )
 {
 	netinterface_rtl8153 * iface = (netinterface_rtl8153 *)transfer->user_data;
+	if( iface->fault ) return;
 	if( transfer->status == LIBUSB_TRANSFER_COMPLETED )
 	{
 		int alen = transfer->actual_length;
@@ -362,7 +363,6 @@ static void cb_in( struct libusb_transfer *transfer )
 		fprintf( stderr, "Transfer failed: Status %d\n", transfer->status );
 	}
 
-//	libusb_fill_bulk_transfer( transfer, iface->device_handle, IN_ENDPOINT, transfer->buffer, BUFFERSIZE, cb_in, iface, 0);
 	transfer->status = 0;
 	transfer->timeout = 0; // From here on out go for forever.
 	int r = libusb_submit_transfer( transfer );
@@ -377,7 +377,17 @@ void rtl8153_teardown( netinterface_rtl8153 * iface )
 {
 	rtl8153_nr--;
 
-	// TODO: Unallocate all transfers.
+	iface->fault = 1;
+
+	int i;
+
+	for( i = 0; i < USB_BUFFERS; i++ )
+	{
+		libusb_cancel_transfer( iface->xfers_in[i] );
+		libusb_cancel_transfer( iface->xfers_out[i] );
+		libusb_free_transfer( iface->xfers_in[i] );
+		libusb_free_transfer( iface->xfers_out[i] );
+	}
 
 	if( iface->descriptor ) free( iface->descriptor );
 	libusb_close( iface->device_handle );
@@ -386,10 +396,17 @@ void rtl8153_teardown( netinterface_rtl8153 * iface )
 		rtl8153_nr = 0;
 		libusb_exit(rtl8153_usb_context);
 	}
+
+	free( iface );
 }
 
 int rtl8153_poll( netinterface_rtl8153 * iface, int microseconds_to_poll )
 {
+	struct timeval tv;
+	tv.tv_sec = 0;
+	tv.tv_usec = microseconds_to_poll;
+	libusb_handle_events_timeout(rtl8153_usb_context, &tv );
+	return 0;
 }
 
 int rtl8153_send( netinterface_rtl8153 * iface, uint8_t * packet, int packetlen )
@@ -427,8 +444,6 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 		0
 	);
 
-	//pla_write_word( iface, OCP_10GBT_CTRL, pla_read_word(iface, OCP_10GBT_CTRL ) | MDIO_AN_10GBT_CTRL_ADV2_5G );
-
 	r8153_ecm_mdio_write( iface, MII_BMCR, 
 		( r8153_ecm_mdio_read( iface, MII_BMCR ) | BMCR_ANENABLE | BMCR_ANRESTART | BMCR_RESET ) ) 
 		& (~(BMCR_PDOWN))
@@ -438,19 +453,18 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 	printf( "AD1000: %d : %04x\n", MII_CTRL1000, r8153_ecm_mdio_read(iface, MII_CTRL1000) );
 	printf( "AD2.5G:   : %08x\n", pla_read_dword(iface, OCP_10GBT_CTRL) );
 
-	// Accept all packets
+	// Accept all packets (in CDC-ECM mode)
 	libusb_control_transfer( iface->device_handle, 0x21, SET_ETHERNET_PACKET_FILTER, 0x1f, 0, 0, 0, 500);
 
 	struct timeval tvzero = { 0 };
 
-	for( i = 0; i < USB_BUFFERS * 2; i++ )
+	for( i = 0; i < USB_BUFFERS; i++ )
 	{
 		struct libusb_transfer * x;
 		x = iface->xfers_in[i] = libusb_alloc_transfer( 0 );
 		libusb_fill_bulk_transfer( x, dh, IN_ENDPOINT, iface->buffer_in[i], BUFFERSIZE, cb_in, iface, 0);
 		libusb_handle_events_timeout(rtl8153_usb_context, &tvzero );
 		int r = libusb_submit_transfer(x);
-		usleep(1000);
 		if( r < 0 )
 		{
 			fprintf( stderr, "Error: Can't submit in transfer error: %d\n", r );
@@ -459,66 +473,6 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 		x = iface->xfers_out[i] = libusb_alloc_transfer( 0 );
 		libusb_fill_bulk_transfer( x, dh, OUT_ENDPOINT, iface->buffer_out[i], BUFFERSIZE, 0, iface, 1000);
 	}
-
-#if 1
-	for( i = 0; i < 65536; i++ )
-	{
-		//int r= libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, 0x31, i, 0, 0, 0, 500);
-		//int r= libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, 0x31, i, 0, 0, 0, 500);
-		//int r = libusb_control_transfer( iface->device_handle, 0x21|0x80, i, 0, 0, 0, 0, 500);
-		//if( r != -9 )
-		//printf( "%02x:%d\n", i, r );
-
-		//uint32_t rd[10] = { 0xffffffff, 0xffffffff };
-		//int r = libusb_control_transfer( iface->device_handle, 0x21|0x80, i, 0, 0, rd, sizeof(rd), 500);
-		//if( r != -9 )
-		//	printf( "%02x: %d\n", i, r );
-		struct timeval tv;
-		tv.tv_sec = 0;
-		tv.tv_usec = 1000;
-		libusb_handle_events_timeout(rtl8153_usb_context, &tv );
-	}
-	while(1)
-	{
-
-	}
-#endif
-
-#if 0
-	#define MCU_TYPE_PLA			0x0100
-	#define PLA_RCR			0xc010
-
-#define PLA_MAR			0xcd00
-/* PLA_RCR */
-#define RCR_AAP			0x00000001
-#define RCR_APM			0x00000002
-#define RCR_AM			0x00000004
-#define RCR_AB			0x00000008
-#define RCR_ACPT_ALL		(RCR_AAP | RCR_APM | RCR_AM | RCR_AB)
-
-
-	while(1)
-	{
-		printf( "PHYS: %08x BMSR: %04x\n", pla_read_dword( iface, OCP_PHY_STATE ), r8153_ecm_mdio_read( iface, MII_BMSR ) );
-		struct timeval tv;
-		tv.tv_sec = 1;
-		tv.tv_usec = 0;
-		libusb_handle_events_timeout(rtl8153_usb_context, &tv );
-
-		uint32_t ocp_data;
-		ocp_data = pla_read_dword(iface, MCU_TYPE_PLA | PLA_RCR);
-		printf( "OCP_DATA %08x\n", ocp_data );
-		ocp_data = RCR_ACPT_ALL;
-		ocp_data |= RCR_AB | RCR_APM | RCR_AM | RCR_AAP | RCR_AM;
-
-		printf( "MAR: %08x %08x\n", pla_read_dword( iface, PLA_MAR ), pla_read_dword( iface, PLA_MAR+4) );
-		pla_write_dword(iface, PLA_MAR+0, 0xffffffff );
-		pla_write_dword(iface, PLA_MAR+4, 0xffffffff );
-		printf( "OCP_DATA_OUT %08x\n", ocp_data );
-		pla_write_dword(iface, MCU_TYPE_PLA | PLA_RCR, ocp_data);
-
-	}
-#endif
 
 	return 0;
 }
