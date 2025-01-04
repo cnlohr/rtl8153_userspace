@@ -175,8 +175,7 @@ typedef struct netinterface_rtl8153_t
 #define htoll(x)     __bswap_32 (x)
 #endif
 
-/* 
-Y NO USE THIS?
+	// Based on https://cscott.net/usb_dev/data/devclass/usbcdc11.pdf
 enum cdc_commands
 {
 	SEND_ENCAPSULATED_COMMAND = 0x00,
@@ -225,7 +224,7 @@ enum cdc_commands
 	SET_MAX_DATAGRAM_SIZE = 0x88,
 	GET_CRC_MODE = 0x89,
 	SET_CRC_MODE = 0x8A,
-}; */
+};
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -254,7 +253,25 @@ static int pla_read_word(netinterface_rtl8153 * iface, uint16_t index)
 	if( ret < 0 )
 		return ret;
 	else
-		return (ltohl(tmp) >> (shift*8)) & 0xffff;;
+		return (ltohl(tmp) >> (shift*8)) & 0xffff;
+}
+
+static int pla_read_dword(netinterface_rtl8153 * iface, uint16_t index)
+{
+	if( index & 3 )
+	{
+		fprintf( stderr, "Invalid read of dword %04x\n", index );
+		return -93;
+	}
+	uint32_t tmp;
+	int ret = libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, RTL8152_REQ_GET_REGS,
+				index,
+				MCU_TYPE_PLA,
+				(uint8_t*)&tmp, sizeof(tmp), 500 );
+	if( ret < 0 )
+		return ret;
+	else
+		return (ltohl(tmp));
 }
 
 static int pla_write_word(netinterface_rtl8153 * iface, uint16_t index, uint32_t data)
@@ -270,6 +287,19 @@ static int pla_write_word(netinterface_rtl8153 * iface, uint16_t index, uint32_t
 	ret = libusb_control_transfer(iface->device_handle, RTL8152_REQT_WRITE, RTL8152_REQ_SET_REGS, index,
 		MCU_TYPE_PLA | (BYTE_EN_WORD<<shift), (uint8_t*)&tmp, sizeof(tmp), 500);
 	return ( ret < 0 ) ? ret : (ret != sizeof(tmp));
+}
+
+static int pla_write_dword(netinterface_rtl8153 * iface, uint16_t index, uint32_t data)
+{
+	if( index & 3 )
+	{
+		fprintf( stderr, "Error: invalid write to %04x\n", index );
+		return -93;
+	}
+	data = htoll(data);
+	int ret = libusb_control_transfer(iface->device_handle, RTL8152_REQT_WRITE, RTL8152_REQ_GET_REGS, index,
+		MCU_TYPE_PLA, (uint8_t*)&data, sizeof(data), 500);
+	return ret;
 }
 
 static int r8153_ecm_mdio_read(netinterface_rtl8153 * iface, int reg)
@@ -331,6 +361,10 @@ static void cb_in( struct libusb_transfer *transfer )
 	{
 		fprintf( stderr, "Transfer failed: Status %d\n", transfer->status );
 	}
+
+//	libusb_fill_bulk_transfer( transfer, iface->device_handle, IN_ENDPOINT, transfer->buffer, BUFFERSIZE, cb_in, iface, 0);
+	transfer->status = 0;
+	transfer->timeout = 0; // From here on out go for forever.
 	int r = libusb_submit_transfer( transfer );
 	if( r != 0 )
 	{
@@ -362,13 +396,13 @@ int rtl8153_send( netinterface_rtl8153 * iface, uint8_t * packet, int packetlen 
 {
 }
 
+
 static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 {
 	libusb_device_handle * dh = iface->device_handle;
 
 	uint8_t dummy = 0;
 
-	// Based on https://cscott.net/usb_dev/data/devclass/usbcdc11.pdf
 	int i;
 
 
@@ -379,40 +413,44 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 		ADVERTISE_100HALF |
 		ADVERTISE_10FULL |
 		ADVERTISE_10HALF |
-		ADVERTISE_CSMA
+		ADVERTISE_CSMA |
+		0
 	) )
 	{
 		fprintf( stderr, "Error: failed to configure ethernet card advertisements\n" );
 		return -1;
 	}
 
-
 	r8153_ecm_mdio_write( iface, MII_CTRL1000, 
 		ADVERTISE_1000HALF |
-		ADVERTISE_1000FULL 
+		ADVERTISE_1000FULL  |
+		0
 	);
 
-	pla_write_word( iface, OCP_10GBT_CTRL, pla_read_word(iface, OCP_10GBT_CTRL ) | MDIO_AN_10GBT_CTRL_ADV2_5G );
+	//pla_write_word( iface, OCP_10GBT_CTRL, pla_read_word(iface, OCP_10GBT_CTRL ) | MDIO_AN_10GBT_CTRL_ADV2_5G );
 
-	r8153_ecm_mdio_write( iface, MII_BMCR, r8153_ecm_mdio_read( iface, MII_BMCR ) | BMCR_ANENABLE | BMCR_ANRESTART );
+	r8153_ecm_mdio_write( iface, MII_BMCR, 
+		( r8153_ecm_mdio_read( iface, MII_BMCR ) | BMCR_ANENABLE | BMCR_ANRESTART | BMCR_RESET ) ) 
+		& (~(BMCR_PDOWN))
+	;
 
 	printf( "ADVERT: %d : %04x\n", MII_ADVERTISE, r8153_ecm_mdio_read(iface, MII_ADVERTISE) );
 	printf( "AD1000: %d : %04x\n", MII_CTRL1000, r8153_ecm_mdio_read(iface, MII_CTRL1000) );
-	printf( "AD2.5G:   : %04x\n", pla_read_word(iface, OCP_10GBT_CTRL) );
-#if 0
-	for( i = 0; i < 256; i++ )
-	{
-		int r= libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, i, 0, 0, 0, 0, 500);
-		printf( "%02x:%d\n", i, r );
-	}
-	while(1);
-#endif
+	printf( "AD2.5G:   : %08x\n", pla_read_dword(iface, OCP_10GBT_CTRL) );
+
+	// Accept all packets
+	libusb_control_transfer( iface->device_handle, 0x21, SET_ETHERNET_PACKET_FILTER, 0x1f, 0, 0, 0, 500);
+
+	struct timeval tvzero = { 0 };
+
 	for( i = 0; i < USB_BUFFERS * 2; i++ )
 	{
 		struct libusb_transfer * x;
 		x = iface->xfers_in[i] = libusb_alloc_transfer( 0 );
 		libusb_fill_bulk_transfer( x, dh, IN_ENDPOINT, iface->buffer_in[i], BUFFERSIZE, cb_in, iface, 0);
+		libusb_handle_events_timeout(rtl8153_usb_context, &tvzero );
 		int r = libusb_submit_transfer(x);
+		usleep(1000);
 		if( r < 0 )
 		{
 			fprintf( stderr, "Error: Can't submit in transfer error: %d\n", r );
@@ -422,14 +460,65 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 		libusb_fill_bulk_transfer( x, dh, OUT_ENDPOINT, iface->buffer_out[i], BUFFERSIZE, 0, iface, 1000);
 	}
 
+#if 1
+	for( i = 0; i < 65536; i++ )
+	{
+		//int r= libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, 0x31, i, 0, 0, 0, 500);
+		//int r= libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, 0x31, i, 0, 0, 0, 500);
+		//int r = libusb_control_transfer( iface->device_handle, 0x21|0x80, i, 0, 0, 0, 0, 500);
+		//if( r != -9 )
+		//printf( "%02x:%d\n", i, r );
+
+		//uint32_t rd[10] = { 0xffffffff, 0xffffffff };
+		//int r = libusb_control_transfer( iface->device_handle, 0x21|0x80, i, 0, 0, rd, sizeof(rd), 500);
+		//if( r != -9 )
+		//	printf( "%02x: %d\n", i, r );
+		struct timeval tv;
+		tv.tv_sec = 0;
+		tv.tv_usec = 1000;
+		libusb_handle_events_timeout(rtl8153_usb_context, &tv );
+	}
 	while(1)
 	{
-		printf( "PHYS: %08x BMSR: %04x\n", pla_read_word( iface, OCP_PHY_STATE ), r8153_ecm_mdio_read( iface, MII_BMSR ) );
+
+	}
+#endif
+
+#if 0
+	#define MCU_TYPE_PLA			0x0100
+	#define PLA_RCR			0xc010
+
+#define PLA_MAR			0xcd00
+/* PLA_RCR */
+#define RCR_AAP			0x00000001
+#define RCR_APM			0x00000002
+#define RCR_AM			0x00000004
+#define RCR_AB			0x00000008
+#define RCR_ACPT_ALL		(RCR_AAP | RCR_APM | RCR_AM | RCR_AB)
+
+
+	while(1)
+	{
+		printf( "PHYS: %08x BMSR: %04x\n", pla_read_dword( iface, OCP_PHY_STATE ), r8153_ecm_mdio_read( iface, MII_BMSR ) );
 		struct timeval tv;
 		tv.tv_sec = 1;
 		tv.tv_usec = 0;
 		libusb_handle_events_timeout(rtl8153_usb_context, &tv );
+
+		uint32_t ocp_data;
+		ocp_data = pla_read_dword(iface, MCU_TYPE_PLA | PLA_RCR);
+		printf( "OCP_DATA %08x\n", ocp_data );
+		ocp_data = RCR_ACPT_ALL;
+		ocp_data |= RCR_AB | RCR_APM | RCR_AM | RCR_AAP | RCR_AM;
+
+		printf( "MAR: %08x %08x\n", pla_read_dword( iface, PLA_MAR ), pla_read_dword( iface, PLA_MAR+4) );
+		pla_write_dword(iface, PLA_MAR+0, 0xffffffff );
+		pla_write_dword(iface, PLA_MAR+4, 0xffffffff );
+		printf( "OCP_DATA_OUT %08x\n", ocp_data );
+		pla_write_dword(iface, MCU_TYPE_PLA | PLA_RCR, ocp_data);
+
 	}
+#endif
 
 	return 0;
 }
@@ -503,15 +592,16 @@ netinterface * netinterface_create_rtl8153( const char * descriptor, int debugle
 
 		libusb_set_auto_detach_kernel_driver( device_handle, 0 );
 		int detach = libusb_detach_kernel_driver( device_handle, 0 );
-		int ce = libusb_set_configuration( device_handle, CDC_CONFIG_MODE );
 		int config;
-		int claim = libusb_claim_interface( device_handle, 1 );
+		int claim0 = libusb_claim_interface( device_handle, 0 );
+		int claim1 = libusb_claim_interface( device_handle, 1 );
+		int ce = libusb_set_configuration( device_handle, CDC_CONFIG_MODE );
 		int as = libusb_set_interface_alt_setting( device_handle, 1 /* Device Configuration */, 1 );
 		int ct = libusb_get_configuration( device_handle, &config );
-		printf( "AS/CL/CT: %d/%d/%d\n", as, claim, ct );
-		if( as < 0 || claim != 0 || config != CDC_CONFIG_MODE )
+		printf( "AS/CL0/1/CT: %d/%d/%d/%d\n", as, claim0, claim1, ct );
+		if( as < 0 || claim1 != 0 || config != CDC_CONFIG_MODE )
 		{
-			fprintf( stderr, "Error: Could not claim interface (Detach Error %d / Claim Error: %d / AS: %d)\n", detach, claim, as );
+			fprintf( stderr, "Error: Could not claim interface (Detach Error %d / Claim Error: %d/%d / AS: %d)\n", detach, claim0, claim1, as );
 			libusb_close(device_handle);
 			continue;
 		}
