@@ -8,7 +8,11 @@
 #include <assert.h>
 #include <unistd.h>
 #include <string.h>
+#ifdef __ANDROID__
+#include "fake_libusb.c"
+#else
 #include <libusb-1.0/libusb.h>
+#endif
 
 #include "netinterface.h"
 
@@ -25,6 +29,7 @@ libusb_context *rtl8153_usb_context = NULL;
 #define BUFFERSIZE 1024
 #define IN_ENDPOINT 0x81
 #define OUT_ENDPOINT 0x2
+#define TRUE_MTU 65536
 
 typedef struct netinterface_rtl8153_t
 {
@@ -39,8 +44,13 @@ typedef struct netinterface_rtl8153_t
 	libusb_device_handle * device_handle;
 	struct libusb_transfer * xfers_in[USB_BUFFERS];
 	struct libusb_transfer * xfers_out[USB_BUFFERS];
+	int rx_pos;
+	int shadow_bmsr;
+	int buffer_out_pos;
+
 	uint8_t buffer_in[USB_BUFFERS][BUFFERSIZE] __attribute__((aligned(128)));
 	uint8_t buffer_out[USB_BUFFERS][BUFFERSIZE] __attribute__((aligned(128)));
+	uint8_t rx_buffer[TRUE_MTU];
 } netinterface_rtl8153;
 
 
@@ -246,10 +256,10 @@ static int pla_read_word(netinterface_rtl8153 * iface, uint16_t index)
 {
 	uint8_t shift = index & 2;
 	uint32_t tmp;
-	int ret = libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, RTL8152_REQ_GET_REGS,
+	int ret = get_registers( iface,
 				index & ~3,
 				MCU_TYPE_PLA | ( BYTE_EN_WORD << shift ),
-				(uint8_t*)&tmp, sizeof(tmp), 500 );
+				sizeof(tmp), (uint8_t*)&tmp );
 	if( ret < 0 )
 		return ret;
 	else
@@ -264,10 +274,10 @@ static int pla_read_dword(netinterface_rtl8153 * iface, uint16_t index)
 		return -93;
 	}
 	uint32_t tmp;
-	int ret = libusb_control_transfer( iface->device_handle, RTL8152_REQT_READ, RTL8152_REQ_GET_REGS,
+	int ret = get_registers( iface,
 				index,
 				MCU_TYPE_PLA,
-				(uint8_t*)&tmp, sizeof(tmp), 500 );
+				sizeof(tmp), (uint8_t*)&tmp );
 	if( ret < 0 )
 		return ret;
 	else
@@ -278,14 +288,14 @@ static int pla_write_word(netinterface_rtl8153 * iface, uint16_t index, uint32_t
 {
 	uint8_t shift = index & 2;
 	uint32_t tmp;
-	int ret = libusb_control_transfer(iface->device_handle, RTL8152_REQT_READ, RTL8152_REQ_GET_REGS, index & ~3,
-		MCU_TYPE_PLA | (BYTE_EN_WORD<<shift), (uint8_t*)&tmp, sizeof(tmp), 500);
+	int ret = get_registers(iface, index & ~3,
+		MCU_TYPE_PLA | (BYTE_EN_WORD<<shift), sizeof(tmp), (uint8_t*)&tmp );
 	if (ret < 0)
 		return ret;
 	data = ((data & 0xffff)<<shift) | ( ltohl(tmp) & ~(0xffff<<shift));
 	tmp = htoll(data);
-	ret = libusb_control_transfer(iface->device_handle, RTL8152_REQT_WRITE, RTL8152_REQ_SET_REGS, index,
-		MCU_TYPE_PLA | (BYTE_EN_WORD<<shift), (uint8_t*)&tmp, sizeof(tmp), 500);
+	ret = set_registers(iface, index,
+		MCU_TYPE_PLA | (BYTE_EN_WORD<<shift), sizeof(tmp), (uint8_t*)&tmp );
 	return ( ret < 0 ) ? ret : (ret != sizeof(tmp));
 }
 
@@ -297,8 +307,8 @@ static int pla_write_dword(netinterface_rtl8153 * iface, uint16_t index, uint32_
 		return -93;
 	}
 	data = htoll(data);
-	int ret = libusb_control_transfer(iface->device_handle, RTL8152_REQT_WRITE, RTL8152_REQ_GET_REGS, index,
-		MCU_TYPE_PLA, (uint8_t*)&data, sizeof(data), 500);
+	int ret = set_registers(iface, index,
+		MCU_TYPE_PLA, sizeof(data), (uint8_t*)&data );
 	return ret;
 }
 
@@ -325,44 +335,41 @@ static int r8153_ecm_mdio_write(netinterface_rtl8153 * iface, int reg, int val)
 
 static void cb_in( struct libusb_transfer *transfer )
 {
-	netinterface_rtl8153 * iface = (netinterface_rtl8153 *)transfer->user_data;
+	netinterface_rtl8153 * iface = (netinterface_rtl8153*)transfer->user_data;
 	if( iface->fault ) return;
 	if( transfer->status == LIBUSB_TRANSFER_COMPLETED )
 	{
 		int alen = transfer->actual_length;
 		uint8_t * buffer = transfer->buffer;
-		printf( "ALen: %d\n", alen );
-		int i;
-		for( i = 0; i < alen; i += 16 )
+		int rxp = iface->rx_pos;
+		if( rxp + alen > TRUE_MTU )
 		{
-			int j;
-			for( j = 0; j < 16; j++ )
-			{
-				int ij = i + j;
-				int b = ( ij < alen ) ? buffer[ij] : -1;
-				if( b >= 0 )
-					printf( "%02x ", b );
-				else
-					printf( "   " );
-			}
-			printf( "  " );
-			for( j = 0; j < 16; j++ )
-			{
-				int ij = i + j;
-				int b = ( ij < alen ) ? buffer[ij] : -1;
-				if( b > 31 && b < 128 )
-					printf( "%c", b );
-				else
-					printf( "." );
-			}
-			printf( "\n" );
+			fprintf( stderr, "buffer overflow\n" );
+			iface->rx_pos = 0;
+			goto recycle;
 		}
+
+		memcpy( iface->rx_buffer + rxp, buffer, alen );
+		rxp += alen;
+
+		if( alen < 1024 )
+		{
+			int (*recv_cb)( struct netinterface_t *, uint8_t *, int ) = iface->recv_cb;
+			if( recv_cb )
+			{
+				recv_cb( (struct netinterface_t*)iface, iface->rx_buffer, rxp );
+			}
+			rxp = 0;
+		}
+		iface->rx_pos = rxp;
 	}
 	else
 	{
 		fprintf( stderr, "Transfer failed: Status %d\n", transfer->status );
 	}
 
+recycle:
+#ifndef __ANDROID__
 	transfer->status = 0;
 	transfer->timeout = 0; // From here on out go for forever.
 	int r = libusb_submit_transfer( transfer );
@@ -371,6 +378,8 @@ static void cb_in( struct libusb_transfer *transfer )
 		fprintf( stderr, "Error pushing transfer back.\n" );
 		iface->fault = r;
 	}
+#endif
+	;
 }
 
 void rtl8153_teardown( netinterface_rtl8153 * iface )
@@ -406,19 +415,75 @@ int rtl8153_poll( netinterface_rtl8153 * iface, int microseconds_to_poll )
 	tv.tv_sec = 0;
 	tv.tv_usec = microseconds_to_poll;
 	libusb_handle_events_timeout(rtl8153_usb_context, &tv );
+
+#ifdef __ANDROID__
+	int i;
+	for( i = 0; i < 1000; i++ )
+	{
+		struct libusb_transfer * x = iface->xfers_in[0];
+		libusb_fill_bulk_transfer( x, iface->device_handle, IN_ENDPOINT, iface->buffer_in[0], BUFFERSIZE, cb_in, iface, 1000);
+		int r = libusb_submit_transfer( x );
+		if( r < 0 ) break;
+	}
+#endif
+
+	uint16_t bmsr = r8153_ecm_mdio_read( iface, MII_BMSR );
+	if( bmsr != iface->shadow_bmsr )
+	{
+		enum netinterface_rate rate = NIF_NORATE;
+		enum netinterface_duplex duplex = NIF_NODUPLEX;
+
+		if( bmsr & BMSR_LSTATUS )
+		{
+			if( bmsr & BMSR_10HALF ) { duplex = NIF_HALF; rate = NIF_10M; }
+			if( bmsr & BMSR_10FULL ) { duplex = NIF_FULL; rate = NIF_10M; }
+			if( bmsr & BMSR_100HALF ) { duplex = NIF_HALF; rate = NIF_100M; }
+			if( bmsr & BMSR_100FULL ) { duplex = NIF_FULL; rate = NIF_100M; }
+			uint16_t s1000 = r8153_ecm_mdio_read( iface, MII_STAT1000 );
+			if( s1000 & 0x0800 )  { duplex = NIF_FULL; rate = NIF_1000M; }
+		}
+
+		if( iface->media_change_cb )
+			iface->media_change_cb( ( struct netinterface_t *) iface, rate, duplex );
+
+		iface->shadow_bmsr = bmsr;
+	}
+
 	return 0;
 }
 
 int rtl8153_send( netinterface_rtl8153 * iface, uint8_t * packet, int packetlen )
 {
+	struct libusb_transfer * xfer = iface->xfers_out[iface->buffer_out_pos];
+	uint8_t * buffer = xfer->buffer;
+	int remain = packetlen;
+	int place = 0;
+	while( remain >= 0 )
+	{
+		int tremain = remain < 1024 ? remain : 1024;
+		memcpy( buffer, packet + place, tremain );
+
+		libusb_fill_bulk_transfer( xfer, iface->device_handle, OUT_ENDPOINT, buffer, tremain, 0, iface, 1000);
+		int r = libusb_submit_transfer( xfer );
+		iface->buffer_out_pos = (iface->buffer_out_pos + 1) % USB_BUFFERS;
+		if( r < 0 )
+		{
+			fprintf( stderr, "Error: Can't submit out transfer error: %d\n", r );
+			return -1;
+		}
+
+		remain -= tremain;
+		if( remain == 0 && tremain != 1024 ) break;
+		xfer = iface->xfers_out[iface->buffer_out_pos];
+		buffer = xfer->buffer;
+	}
+	return 0;
 }
 
 
 static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 {
 	libusb_device_handle * dh = iface->device_handle;
-
-	uint8_t dummy = 0;
 
 	int i;
 
@@ -438,16 +503,23 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 		return -1;
 	}
 
-	r8153_ecm_mdio_write( iface, MII_CTRL1000, 
+	if( r8153_ecm_mdio_write( iface, MII_CTRL1000, 
 		ADVERTISE_1000HALF |
 		ADVERTISE_1000FULL  |
 		0
-	);
+	) )
+	{
+		fprintf( stderr, "error: Failed to configure MII_CTRL1000\n" );
+		return -1;
+	}
 
-	r8153_ecm_mdio_write( iface, MII_BMCR, 
+	if( r8153_ecm_mdio_write( iface, MII_BMCR, 
 		( r8153_ecm_mdio_read( iface, MII_BMCR ) | BMCR_ANENABLE | BMCR_ANRESTART | BMCR_RESET ) ) 
-		& (~(BMCR_PDOWN))
-	;
+		& (~(BMCR_PDOWN)) )
+	{
+		fprintf( stderr, "error: Failed to configure MII_BMCR\n" );
+		return -1;
+	}
 
 	printf( "ADVERT: %d : %04x\n", MII_ADVERTISE, r8153_ecm_mdio_read(iface, MII_ADVERTISE) );
 	printf( "AD1000: %d : %04x\n", MII_CTRL1000, r8153_ecm_mdio_read(iface, MII_CTRL1000) );
@@ -464,11 +536,13 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 		x = iface->xfers_in[i] = libusb_alloc_transfer( 0 );
 		libusb_fill_bulk_transfer( x, dh, IN_ENDPOINT, iface->buffer_in[i], BUFFERSIZE, cb_in, iface, 0);
 		libusb_handle_events_timeout(rtl8153_usb_context, &tvzero );
+#ifndef __ANDROID__
 		int r = libusb_submit_transfer(x);
 		if( r < 0 )
 		{
 			fprintf( stderr, "Error: Can't submit in transfer error: %d\n", r );
 		}
+#endif
 
 		x = iface->xfers_out[i] = libusb_alloc_transfer( 0 );
 		libusb_fill_bulk_transfer( x, dh, OUT_ENDPOINT, iface->buffer_out[i], BUFFERSIZE, 0, iface, 1000);
@@ -479,6 +553,7 @@ static int rtl8153_internal_start_device( netinterface_rtl8153 * iface )
 
 netinterface * netinterface_create_rtl8153( const char * descriptor, int debuglevel )
 {
+#ifndef __ANDROID__
 	libusb_device **usb_devices = NULL;
 
 	// Initialize USB context
@@ -546,20 +621,27 @@ netinterface * netinterface_create_rtl8153( const char * descriptor, int debugle
 
 		libusb_set_auto_detach_kernel_driver( device_handle, 0 );
 		int detach = libusb_detach_kernel_driver( device_handle, 0 );
+		int ce = libusb_set_configuration( device_handle, CDC_CONFIG_MODE );
 		int config;
 		int claim0 = libusb_claim_interface( device_handle, 0 );
 		int claim1 = libusb_claim_interface( device_handle, 1 );
-		int ce = libusb_set_configuration( device_handle, CDC_CONFIG_MODE );
 		int as = libusb_set_interface_alt_setting( device_handle, 1 /* Device Configuration */, 1 );
 		int ct = libusb_get_configuration( device_handle, &config );
 		printf( "AS/CL0/1/CT: %d/%d/%d/%d\n", as, claim0, claim1, ct );
 		if( as < 0 || claim1 != 0 || config != CDC_CONFIG_MODE )
 		{
-			fprintf( stderr, "Error: Could not claim interface (Detach Error %d / Claim Error: %d/%d / AS: %d)\n", detach, claim0, claim1, as );
+			fprintf( stderr, "Error: Could not claim interface (Detach Error %d / Claim Error: %d/%d / AS: %d / CE: %d)\n",
+				detach, claim0, claim1, as, ce );
 			libusb_close(device_handle);
 			continue;
 		}
-
+#else
+	libusb_device_handle *device_handle = NULL;
+	char serial[512];
+	if( ConnectAndroidUSB( RTL8153_VID, RTL8153_PID, &device_handle, serial, sizeof(serial) ) == 0 )
+	{
+		
+#endif
 		netinterface_rtl8153 * ret = calloc( sizeof( netinterface_rtl8153 ), 1 );
 		ret->recv_cb = 0;
 		ret->media_change_cb = 0;
@@ -570,7 +652,9 @@ netinterface * netinterface_create_rtl8153( const char * descriptor, int debugle
 		ret->send = (int (*)( struct netinterface_t * , uint8_t *, int))rtl8153_send;
 		ret->device_handle = device_handle;
 		ret->descriptor = strdup( serial );
+#ifndef __ANDROID__
 		libusb_free_device_list(usb_devices, 1);
+#endif
 
 		if( rtl8153_internal_start_device( ret ) )
 		{
@@ -582,11 +666,19 @@ netinterface * netinterface_create_rtl8153( const char * descriptor, int debugle
 		rtl8153_nr++;
 		return (netinterface*)ret;
 	}
+	else
+	{
+		fprintf( stderr, "ERROR: No device available\n" );
+	}
 
+#ifndef __ANDROID__
 	libusb_free_device_list(usb_devices, 1);
+#endif
 	return 0;
 }
 
+#ifndef __clang__
 static_assert( (intptr_t)&(((netinterface_rtl8153*)0)->descriptor) == (intptr_t)&((netinterface*)0)->descriptor, "structure headers incompatible" );
+#endif
 
 REGISTER_INTERFACE( rtl8153 );
