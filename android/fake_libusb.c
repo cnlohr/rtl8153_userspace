@@ -4,8 +4,11 @@
 #include <asset_manager_jni.h>
 #include <android_native_app_glue.h>
 #include <linux/ioctl.h>
+
 extern jobject deviceConnection;
+extern int deviceFD;
 extern int deviceConnectionFD;
+extern char deviceFile[PATH_MAX];
 
 typedef struct libusb_context_t
 {
@@ -30,6 +33,29 @@ struct libusb_transfer
 	libusb_device_handle * dh;
 };
 
+
+#define USBFS_DISCONNECT_CLAIM_IF_DRIVER	0x01
+#define USBFS_DISCONNECT_CLAIM_EXCEPT_DRIVER	0x02
+
+#ifndef _IOC_READ
+# define _IOC_READ	2U
+#endif
+#define USBFS_MAXDRIVERNAME		255
+#define _IOR(type,nr,argtype)		_IOC(_IOC_READ,(type),(nr),(_IOC_TYPECHECK(argtype)))
+#define IOCTL_USBFS_CLAIMINTERFACE	_IOR('U', 15, unsigned int)
+#define IOCTL_USBFS_DISCONNECT_CLAIM	_IOR('U', 27, struct usbfs_disconnect_claim)
+#define USBDEVFS_BULK              _IOWR('U', 2, struct usbdevfs_bulktransfer)
+#define IOCTL_USBFS_SETINTERFACE	_IOR('U', 4, struct usbfs_setinterface)
+#define IOCTL_USBFS_SETCONFIGURATION	_IOR('U', 5, unsigned int)
+
+
+struct usbfs_setinterface {
+	/* keep in sync with usbdevice_fs.h:usbdevfs_setinterface */
+	unsigned int interface;
+	unsigned int altsetting;
+};
+
+
 #define LIBUSB_TRANSFER_COMPLETED 0
 
 extern char debug_status[4096];
@@ -42,6 +68,8 @@ double dTimeOfUSBFail;
 double dTimeOfLastAsk;
 jobject deviceConnection = 0;
 int deviceConnectionFD = 0;
+int deviceFD = 0;
+char deviceFile[PATH_MAX];
 extern struct android_app * gapp;
 
 jmethodID MethodbulkTransfer;
@@ -82,6 +110,30 @@ int libusb_control_transfer( libusb_device_handle * dh, int bmRequestType, int b
 
 int libusb_submit_transfer( struct libusb_transfer * xfer )
 {
+
+	struct usbdevfs_bulktransfer {
+		unsigned int ep;
+		unsigned int len;
+		unsigned int timeout; /* in milliseconds */
+		void __user *data;
+	};
+
+	struct usbdevfs_bulktransfer bt = {
+		.ep = xfer->endpoint,
+		.len = xfer->buffer_len,
+		.timeout = xfer->timeout,
+		.data = xfer->buffer,
+	};
+	errno = 0;
+	printf( "BULK STARTING: %02x %d\n", bt.ep, bt.timeout );
+	int r = ioctl(deviceConnectionFD, USBDEVFS_BULK, &bt);
+	printf( "BULK REPLY: (DEBUG REMOVE ME): %d %d %s\n", r, errno, strerror( errno ) );
+
+	return -1;
+
+
+
+#if 0
 	struct android_app* app = gapp;
 	const struct JNINativeInterface * env = 0;
 	const struct JNINativeInterface ** envptr = &env;
@@ -117,6 +169,7 @@ printf( "BULK XFER: %02x %p %p %d %d\n", xfer->endpoint, ba, epo, xfer->buffer_l
 	if( ( xfer->endpoint & 0x80 ) && xfer->cb )
 		xfer->cb( xfer );
 	return xferred;
+#endif
 }
 
 int libusb_fill_bulk_transfer( struct libusb_transfer * xfer, libusb_device_handle * dh, int endpoint, uint8_t * buffer, int len, void (*cb)( struct libusb_transfer *), void * user_data, int timeout )
@@ -281,14 +334,16 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 		ats+=sprintf(ats, "%s,%04x:%04x\n", strdevname,
 			vendorId,
 			productId );
-		env->ReleaseStringUTFChars( envptr, tempstr, strdevname );
 
 		if( vendorId == vid && productId == pid )
 		{
+			strncpy( deviceFile, strdevname, sizeof( deviceFile ) );
 			printf( "Matching Device\n" );
 			matchingDevice = device;
+			env->ReleaseStringUTFChars( envptr, tempstr, strdevname );
 			break;
 		}
+		env->ReleaseStringUTFChars( envptr, tempstr, strdevname );
 
 		bHasNext = env->CallBooleanMethod( envptr, deviceListIterator, MethodhasNext );
 	}
@@ -313,11 +368,11 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 
 //
 // CHARLES: You have to first set config 1, then claim it, then you can switch to config 2, it seems.
-#if 1
 	deviceConnection = env->CallObjectMethod( envptr, manager, MethodopenDevice, matchingDevice );
 	if( !deviceConnection )
 		goto requestPermission;
 
+#if 0
 	for( j = 0; j < ifaceCount; j++ )
 	{
 		jobject interface = env->CallObjectMethod( envptr, matchingDevice, MethodgetInterface, j );
@@ -336,7 +391,6 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 		printf( "PRECLAIM %d\n", claimOk );
 	}
 	env->CallVoidMethod( envptr, deviceConnection, Methodclose );
-#endif
 
 	for( i = 0; i < numConfigurations; i++ )
 	{
@@ -450,6 +504,131 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 
 	
 
+	matchingEpTX = env->NewGlobalRef(envptr, matchingEpTX);
+	matchingEpRX = env->NewGlobalRef(envptr, matchingEpRX);
+#endif
+	deviceConnectionFD = env->CallIntMethod( envptr, deviceConnection, MethodgetFileDescriptor );
+	deviceConnection = env->NewGlobalRef(envptr, deviceConnection);
+
+	jnii->DetachCurrentThread( jniiptr );
+
+	printf( "deviceConnectionFD: %d\n", deviceConnectionFD );
+
+	struct usbfs_disconnect_claim {
+		unsigned int interface;
+		unsigned int flags;
+		char driver[USBFS_MAXDRIVERNAME + 1];
+	};
+
+	struct usbfs_disconnect_claim dc;
+
+		for( j = 0; j < 8; j++ )
+		{
+			dc.interface = j;
+			strcpy(dc.driver, "usbfs");
+			dc.flags = USBFS_DISCONNECT_CLAIM_EXCEPT_DRIVER;
+			int r = ioctl(deviceConnectionFD, IOCTL_USBFS_DISCONNECT_CLAIM, &dc);
+
+			dc.flags = USBFS_DISCONNECT_CLAIM_IF_DRIVER;
+			int r2 = ioctl(deviceConnectionFD, IOCTL_USBFS_DISCONNECT_CLAIM, &dc);
+			printf( "DC %d: %d %d\n", j, r, r2 );
+		}
+
+	for( j = 0; j < 8; j++ )
+	{
+		unsigned int iface = j;
+		int r3 = ioctl(deviceConnectionFD, IOCTL_USBFS_CLAIMINTERFACE, &iface);
+		printf( "CLAIM: %d\n", r3 );
+	}
+
+
+	int config;
+	for( config = 0; config < 4; config++ )
+	{
+		//int config = SELECTED_CONFIGURATION;
+		int re = ioctl(deviceConnectionFD, IOCTL_USBFS_SETCONFIGURATION, &config);
+
+		printf( "IOCTL_USBFS_SETCONFIGURATION: %d\n", re );
+	}
+
+	for( j = 0; j < 8; j++ )
+	{
+		unsigned int iface = j;
+		int r3 = ioctl(deviceConnectionFD, IOCTL_USBFS_CLAIMINTERFACE, &iface);
+		printf( "CLAIM: %d\n", r3 );
+	}
+
+
+	struct usbfs_setinterface setintf;
+	setintf.interface = 1;
+	setintf.altsetting = 1;
+	int re = ioctl(deviceConnectionFD, IOCTL_USBFS_SETINTERFACE, &setintf);
+	printf( "IOCTL_USBFS_SETINTERFACE: %d\n", re );
+
+//		int as = libusb_set_interface_alt_setting( device_handle, 1 /* Device Configuration */, 1 );
+//		int ct = libusb_get_configuration( device_handle, &config );
+
+
+	return (!deviceConnectionFD)?-5:0;
+
+requestPermission:
+
+	// 	hasPermission(UsbDevice device) 
+	if( OGGetAbsoluteTime() - dTimeOfLastAsk < 5 )
+	{
+		ats+=sprintf(ats, "Asked for permission.  Waiting to ask again." );
+	}
+	else if( env->CallBooleanMethod( envptr, manager, MethodhasPermission, matchingDevice ) )
+	{
+		ats+=sprintf(ats, "Has permission - disconnected?" );
+	}
+	else
+	{
+		//android.app.PendingIntent currently setting to 0 (null) seems not to cause crashes, but does force lock screen to happen.
+		//Because the screen locks we need to do a much more complicated operation, generating a PendingIntent.  See Below.
+		//  			env->CallVoidMethod( envptr, manager, MethodrequestPermission, matchingDevice, 0 );
+
+		//This part mimiced off of:
+		//https://www.programcreek.com/java-api-examples/?class=android.hardware.usb.UsbManager&method=requestPermission
+		// manager.requestPermission(device, PendingIntent.getBroadcast(context, 0, new Intent(MainActivity.ACTION_USB_PERMISSION), 0));
+		jclass ClassPendingIntent = env->FindClass( envptr, "android/app/PendingIntent" );
+		jclass ClassIntent = env->FindClass(envptr, "android/content/Intent");
+		jmethodID newIntent = env->GetMethodID(envptr, ClassIntent, "<init>", "(Ljava/lang/String;)V");
+		jstring ACTION_USB_PERMISSION = env->NewStringUTF( envptr, "com.android.recipes.USB_PERMISSION" );
+		jobject intentObject = env->NewObject(envptr, ClassIntent, newIntent, ACTION_USB_PERMISSION);
+
+		jmethodID MethodgetBroadcast = env->GetStaticMethodID( envptr, ClassPendingIntent, "getBroadcast", 
+			"(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;" );
+		jobject pi = env->CallStaticObjectMethod( envptr, ClassPendingIntent, MethodgetBroadcast, lNativeActivity, 0, intentObject, 0 );
+
+		//This actually requests permission.
+		env->CallVoidMethod( envptr, manager, MethodrequestPermission, matchingDevice, pi );
+		dTimeOfLastAsk = OGGetAbsoluteTime();
+	}
+
+    if (env->ExceptionCheck(envptr)) {
+        env->ExceptionDescribe(envptr);
+        env->ExceptionClear(envptr);
+        printf( "Permissions Failed\n" );
+    } else {
+        printf( "Permissions Passed\n" );
+    }
+
+	return -5;
+}
+
+
+
+
+
+
+
+
+
+
+
+#if 0
+
 #if 0
 		libusb_set_auto_detach_kernel_driver( device_handle, 0 );
 		int detach = libusb_detach_kernel_driver( device_handle, 0 );
@@ -535,90 +714,5 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 
 	}
 #endif
-
-	matchingEpTX = env->NewGlobalRef(envptr, matchingEpTX);
-	matchingEpRX = env->NewGlobalRef(envptr, matchingEpRX);
-	deviceConnection = env->NewGlobalRef(envptr, deviceConnection);
-
-	jnii->DetachCurrentThread( jniiptr );
-
-	printf( "deviceConnectionFD: %d\n", deviceConnectionFD );
-
-
-
-	#define USBFS_DISCONNECT_CLAIM_IF_DRIVER	0x01
-	#define USBFS_DISCONNECT_CLAIM_EXCEPT_DRIVER	0x02
-
-#ifndef _IOC_READ
-# define _IOC_READ	2U
 #endif
-#define USBFS_MAXDRIVERNAME		255
-#define _IOR(type,nr,argtype)		_IOC(_IOC_READ,(type),(nr),(_IOC_TYPECHECK(argtype)))
-#define IOCTL_USBFS_DISCONNECT_CLAIM	_IOR('U', 27, struct usbfs_disconnect_claim)
-
-	struct usbfs_disconnect_claim {
-		unsigned int interface;
-		unsigned int flags;
-		char driver[USBFS_MAXDRIVERNAME + 1];
-	};
-
-	struct usbfs_disconnect_claim dc;
-
-	for( j = 0; j < 4; j++ )
-	{
-		dc.interface = j;
-		strcpy(dc.driver, "usbfs");
-		dc.flags = USBFS_DISCONNECT_CLAIM_EXCEPT_DRIVER;
-		int r = ioctl(deviceConnectionFD, IOCTL_USBFS_DISCONNECT_CLAIM, &dc);
-		printf( "UBER: %d\n", r );
-	}
-
-	return (!deviceConnectionFD)?-5:0;
-
-requestPermission:
-
-	// 	hasPermission(UsbDevice device) 
-	if( OGGetAbsoluteTime() - dTimeOfLastAsk < 5 )
-	{
-		ats+=sprintf(ats, "Asked for permission.  Waiting to ask again." );
-	}
-	else if( env->CallBooleanMethod( envptr, manager, MethodhasPermission, matchingDevice ) )
-	{
-		ats+=sprintf(ats, "Has permission - disconnected?" );
-	}
-	else
-	{
-		//android.app.PendingIntent currently setting to 0 (null) seems not to cause crashes, but does force lock screen to happen.
-		//Because the screen locks we need to do a much more complicated operation, generating a PendingIntent.  See Below.
-		//  			env->CallVoidMethod( envptr, manager, MethodrequestPermission, matchingDevice, 0 );
-
-		//This part mimiced off of:
-		//https://www.programcreek.com/java-api-examples/?class=android.hardware.usb.UsbManager&method=requestPermission
-		// manager.requestPermission(device, PendingIntent.getBroadcast(context, 0, new Intent(MainActivity.ACTION_USB_PERMISSION), 0));
-		jclass ClassPendingIntent = env->FindClass( envptr, "android/app/PendingIntent" );
-		jclass ClassIntent = env->FindClass(envptr, "android/content/Intent");
-		jmethodID newIntent = env->GetMethodID(envptr, ClassIntent, "<init>", "(Ljava/lang/String;)V");
-		jstring ACTION_USB_PERMISSION = env->NewStringUTF( envptr, "com.android.recipes.USB_PERMISSION" );
-		jobject intentObject = env->NewObject(envptr, ClassIntent, newIntent, ACTION_USB_PERMISSION);
-
-		jmethodID MethodgetBroadcast = env->GetStaticMethodID( envptr, ClassPendingIntent, "getBroadcast", 
-			"(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;" );
-		jobject pi = env->CallStaticObjectMethod( envptr, ClassPendingIntent, MethodgetBroadcast, lNativeActivity, 0, intentObject, 0 );
-
-		//This actually requests permission.
-		env->CallVoidMethod( envptr, manager, MethodrequestPermission, matchingDevice, pi );
-		dTimeOfLastAsk = OGGetAbsoluteTime();
-	}
-
-    if (env->ExceptionCheck(envptr)) {
-        env->ExceptionDescribe(envptr);
-        env->ExceptionClear(envptr);
-        printf( "Permissions Failed\n" );
-    } else {
-        printf( "Permissions Passed\n" );
-    }
-
-	return -5;
-}
-
 

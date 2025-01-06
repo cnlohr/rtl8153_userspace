@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <string.h>
 #ifdef __ANDROID__
-#include "fake_libusb.c"
+#include "fake_libusb-test.c"
 #else
 #include <libusb-1.0/libusb.h>
 #endif
@@ -665,10 +665,6 @@ netinterface * netinterface_create_rtl8153( const char * descriptor, int debugle
 
 		rtl8153_nr++;
 		return (netinterface*)ret;
-	}
-	else
-	{
-		fprintf( stderr, "ERROR: No device available\n" );
 	}
 
 #ifndef __ANDROID__
