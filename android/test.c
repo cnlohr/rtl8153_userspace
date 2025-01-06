@@ -143,7 +143,7 @@ int main( int argc, char ** argv )
 	printf( "Starting Up\n" );
 
 	CNFGBGColor = 0x000040ff;
-	CNFGSetupFullscreen( "Test Bench", 0 );
+	CNFGSetup( "Test Bench", -1, -1 );
 	
 	HandleWindowTermination = HandleThisWindowTermination;
 
@@ -166,7 +166,7 @@ int main( int argc, char ** argv )
 		CNFGSetLineWidth( 7 );
 		CNFGPenX = 0; CNFGPenY = 480;
 		char st[4096];
-		snprintf( st, sizeof(st), "%dx%d %d %d %d %d %d %d\n%d %d\niface: %p\nmedia: %s",
+		snprintf( st, sizeof(st), "%dx%d %d %d %d %d %d %d\n%d %d\niface: %s\nmedia: %s",
 			screenx, screeny, lastbuttonx, lastbuttony, lastmotionx, lastmotiony, lastkey, lastkeydown, lastbid, lastmask, SoftRNDISStatusBuffer, media_status );
 		CNFGDrawText( st, 9 );
 		CNFGSetLineWidth( 2 );

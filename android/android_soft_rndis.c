@@ -1,3 +1,8 @@
+// XXX TODO
+// 1. Fix logic for receiving packets from a stream.
+// 2. See if we can figure out what voodoo Android does before bringing the chip online?
+// For some reason we need to wait a few seconds.
+
 #include "os_generic.h"
 #include <errno.h>
 #include <asset_manager.h>
@@ -365,7 +370,7 @@ static int Internal_BulkRequest( void * handle, int ep, uint8_t * data, int len,
 	};
 	errno = 0;
 
-	if( ep == 0x02 )
+	if( 0 && ep == 0x02 )
 	{
 		int j;
 		for( j = 0; j < len; j++ )
@@ -376,7 +381,7 @@ static int Internal_BulkRequest( void * handle, int ep, uint8_t * data, int len,
 	}
 	errno = 0;
 	int r = ioctl(deviceConnectionFD, USBDEVFS_BULK, &bt);
-	if( ep == 0x02 )
+	if( 0 && ep == 0x02 )
 	{
 		printf( "BULK REPLY: (DEBUG REMOVE ME): %d %d %s\n", r, errno, strerror( errno ) );
 	}
@@ -391,14 +396,29 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 {
 	void * iface = 0;
 
-	static uint8_t packetbuffer[65536+36];
+	static uint8_t packetbuffer[12000];
+	static int lastptr = 0;
+//XXX TODO Pick up here
 	uint8_t rxbuffer[1024];
 	int r = Internal_BulkRequest( iface, 0x81, rxbuffer, sizeof( rxbuffer ), 1 );
 	if( r >= 0 )
 	{
-		SoftRNDISReceived( 0, rxbuffer, r );
-		printf( "RRRRRRRRRRRRRRRX %d\n", r );
-		// Do stuff.
+		if( lastptr < sizeof( packetbuffer ) - r )
+			memcpy( packetbuffer + lastptr, rxbuffer, r );
+		int declenn = packetbuffer[0] + (packetbuffer[1]<<8);
+		lastptr += r;
+
+		printf( "Packet: %d %d %d\n", r, lastptr, declenn );
+		if( lastptr + 24 >= declenn ) // 24 = wacky Realtek header size.
+		{
+			SoftRNDISReceived( 0, packetbuffer, lastptr );
+			lastptr = 0;
+			// Do stuff.
+		}
+		if( lastptr > sizeof( packetbuffer ) - sizeof( rxbuffer) || declenn >sizeof( packetbuffer ) - sizeof( rxbuffer) )
+		{
+			declenn = 0;
+		}
 	}
 	return 0;
 }
@@ -434,8 +454,6 @@ int SoftRNDISCheckMedia()
 	return 0;
 }
 
-
-
 int SoftRNDISClose()
 {
 	close( deviceConnectionFD );
@@ -445,6 +463,7 @@ int SoftRNDISClose()
 
 int SoftRNDISConnect()
 {
+	int i;
 	void * iface = 0; // for later
 
 	if( deviceConnectionFD ) return 0;
@@ -532,6 +551,7 @@ int SoftRNDISConnect()
 	jmethodID MethodgetAddress = env->GetMethodID( envptr, ClassUsbEndpoint, "getAddress", "()I" );
 	jmethodID MethodgetMaxPacketSize = env->GetMethodID( envptr, ClassUsbEndpoint, "getMaxPacketSize", "()I" );
 	jmethodID MethodsetConfiguration = env->GetMethodID( envptr, ClassUsbDeviceConnection, "setConfiguration", "(Landroid/hardware/usb/UsbConfiguration;)Z" );
+	jmethodID MethodconfigurationgetId = env->GetMethodID( envptr, ClassUsbConfiguration, "getId", "()I" );
 
 	jmethodID MethodopenDevice = env->GetMethodID( envptr, ClassUsbManager, "openDevice", "(Landroid/hardware/usb/UsbDevice;)Landroid/hardware/usb/UsbDeviceConnection;" );
 	jmethodID Methodclose = env->GetMethodID( envptr, ClassUsbDeviceConnection, "close", "()V" );
@@ -571,22 +591,42 @@ int SoftRNDISConnect()
 		bHasNext = env->CallBooleanMethod( envptr, deviceListIterator, MethodhasNext );
 	}
 
-	printf( "Matching Device: %p\n", matchingDevice );
-
 	if( !matchingDevice )
 	{
 		ats+=sprintf(ats, "No matching device\n" );
 		return -2;
 	}
 
+	printf( "Found Matching Device %p\n", matchingDevice );
+#if 0
+	jint numConfigurations = env->CallIntMethod( envptr, matchingDevice, MethodgetConfigurationCount );
+	jobject matchingConfiguration = 0;
+
+	for( i = 0; i < numConfigurations; i++ )
+	{
+		jobject configuration = env->CallObjectMethod( envptr, matchingDevice, MethodgetConfiguration, i );
+		int id = env->CallIntMethod( envptr, configuration, MethodconfigurationgetId );
+		if( id == 1 ) //XXX
+		{
+			matchingConfiguration = configuration;
+		}
+	}
+
+	if( matchingConfiguration == 0 )
+	{
+		ats+=sprintf(ats, "No matching configuration\n" );
+		printf( "NO MATCHING CONFIGURATION\n" );
+		return -9;
+	}
+
+	printf( "Found matching configuration\n" );
+#endif
+
 	int ifaceCount = env->CallIntMethod( envptr, matchingDevice, MethodgetInterfaceCount );
 
-	printf( "IFACE COUNT: %d\n", ifaceCount );
-
-	jint numConfigurations = env->CallIntMethod( envptr, matchingDevice, MethodgetConfigurationCount );
-	jmethodID MethodconfigurationgetId = env->GetMethodID( envptr, ClassUsbConfiguration, "getId", "()I" );
-	jobject matchingConfiguration = 0;
-	int i;
+	//jint numConfigurations = env->CallIntMethod( envptr, matchingDevice, MethodgetConfigurationCount );
+	//jmethodID MethodconfigurationgetId = env->GetMethodID( envptr, ClassUsbConfiguration, "getId", "()I" );
+	//jobject matchingConfiguration = 0;
 	int j;
 
 	deviceConnection = env->CallObjectMethod( envptr, manager, MethodopenDevice, matchingDevice );
@@ -595,6 +635,12 @@ int SoftRNDISConnect()
 		dTimeOfUSBFail = dNow;
 		goto requestPermission;
 	}
+	jboolean configOk = 0;
+//	jboolean configOk = env->CallBooleanMethod( envptr, deviceConnection,
+//		MethodsetConfiguration, matchingConfiguration );
+
+	printf( "Config OK: %d\n", configOk );
+	ats+=sprintf(ats, "Config OK: %d\n", configOk );
 
 	deviceConnectionFD = env->CallIntMethod( envptr, deviceConnection, MethodgetFileDescriptor );
 	deviceConnection = env->NewGlobalRef(envptr, deviceConnection);
@@ -649,8 +695,8 @@ int SoftRNDISConnect()
 
 
 	struct usbfs_setinterface setintf;
-	setintf.interface = 1;
-	setintf.altsetting = 1;
+	setintf.interface = 0;
+	setintf.altsetting = 0;
 	int re = ioctl(deviceConnectionFD, IOCTL_USBFS_SETINTERFACE, &setintf);
 	printf( "IOCTL_USBFS_SETINTERFACE: %d\n", re );
 
@@ -762,17 +808,10 @@ int SoftRNDISTick( int timeout )
 
 int SoftRNDISSend( void * handle, uint8_t * buffer, int packetlen )
 {
-#if 0
-40 00 04 00 00 00 00 00 ff ff e0 00 00 00 01 06   @...............
-00 00 00 00 00 00 00 00 ff ff ff ff ff ff 18 c0   ................
-4d 8c 98 14 08 06 00 01 08 00 06 04 00 01 18 c0   M...............
-4d 8c 98 14 c0 a8 01 02 00 00 00 00 00 00 c0 a8   M...............
-01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
-00 00 00 00 0d 51 1c f1                           .....Q..........
-#endif
-
 
 #if 0
+	// From the drivers here: https://www.realtek.com/Download/List?cate_id=585
+
 struct tx_desc {
 	__le32 opts1;
 #define TX_FS			BIT(31) /* First segment of a packet */
@@ -799,8 +838,6 @@ struct tx_desc {
 
 	const static uint8_t header_fix[] = {
 		0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00,
-		//0x41, 0x01, 0x20, 0x00, 0x00, 0x00, 0x01, 0x06,
-		//0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	};
 	int fulllen = packetlen+sizeof(header_fix);
 	uint8_t sendpak[fulllen];
