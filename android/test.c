@@ -14,7 +14,7 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#include "netinterface.h"
+#include "android_soft_rndis.h"
 #include "os_generic.h"
 
 #define CNFG_IMPLEMENTATION
@@ -54,7 +54,12 @@ void HandleButton( int x, int y, int button, int bDown )
 	lastbuttonx = x;
 	lastbuttony = y;
 
-	if( bDown ) { keyboard_up = !keyboard_up; AndroidDisplayKeyboard( keyboard_up ); }
+	if( bDown ) {
+		// keyboard_up = !keyboard_up; AndroidDisplayKeyboard( keyboard_up );
+		uint8_t test_packet[64] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xab, 0xcd, 0x00, 0x01, 0x02, 0x03, 0x08, 0x80, 0x45 };
+		printf( "SEND: %d\n", SoftRNDISSend( 0, test_packet, sizeof( test_packet ) ) );
+
+	}
 }
 
 void HandleMotion( int x, int y, int mask )
@@ -90,12 +95,11 @@ void HandleThisWindowTermination()
 }
 
 char media_status[1024];
-char debug_status[4096] = { 0 };
-netinterface * iface;
 
-int recv_cb( struct netinterface_t * iface, uint8_t * packet, int packetlen )
+void SoftRNDISReceived( void * iface, uint8_t * packet, int packetlen )
 {
 	printf( "ALen: %d\n", packetlen );
+#if 1
 	int i;
 	for( i = 0; i < packetlen; i += 16 )
 	{
@@ -121,15 +125,12 @@ int recv_cb( struct netinterface_t * iface, uint8_t * packet, int packetlen )
 		}
 		printf( "\n" );
 	}
-	return 0;
+#endif
 }
 
-int media_change_cb( struct netinterface_t * iface, enum netinterface_rate rate, enum netinterface_duplex duplex )
+void SoftRNDISChangeMediaState( void * iface, enum netinterface_rate rate, enum netinterface_duplex duplex )
 {
 	sprintf( media_status, "MEDIA: %d %d\n", rate, duplex );
-	uint8_t test_packet[64] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xab, 0xcd, 0x00, 0x01, 0x02, 0x03, 0x08, 0x80, 0x45 };
-	iface->send( iface, test_packet, sizeof( test_packet ) );
-	return 0;
 }
 
 
@@ -140,14 +141,6 @@ int main( int argc, char ** argv )
 	double LastFPSTime = OGGetAbsoluteTime();
 
 	printf( "Starting Up\n" );
-
-	iface = netinterface_create( "rtl8153", 0, 3 );
-	if( iface )
-	{
-		iface->opaque = 0;
-		iface->recv_cb = recv_cb;
-		iface->media_change_cb = media_change_cb;
-	}
 
 	CNFGBGColor = 0x000040ff;
 	CNFGSetupFullscreen( "Test Bench", 0 );
@@ -173,8 +166,8 @@ int main( int argc, char ** argv )
 		CNFGSetLineWidth( 7 );
 		CNFGPenX = 0; CNFGPenY = 480;
 		char st[4096];
-		snprintf( st, sizeof(st), "%dx%d %d %d %d %d %d %d\n%d %d\niface: %p\n%s\ndescriptor:%s\nmedia: %s",
-			screenx, screeny, lastbuttonx, lastbuttony, lastmotionx, lastmotiony, lastkey, lastkeydown, lastbid, lastmask, iface, debug_status, iface?iface->descriptor:0, media_status );
+		snprintf( st, sizeof(st), "%dx%d %d %d %d %d %d %d\n%d %d\niface: %p\nmedia: %s",
+			screenx, screeny, lastbuttonx, lastbuttony, lastmotionx, lastmotiony, lastkey, lastkeydown, lastbid, lastmask, SoftRNDISStatusBuffer, media_status );
 		CNFGDrawText( st, 9 );
 		CNFGSetLineWidth( 2 );
 
@@ -188,8 +181,14 @@ int main( int argc, char ** argv )
 
 		ThisTime = OGGetAbsoluteTime();
 
-		if( iface )
-			iface->poll( iface, 0 );
+		SoftRNDISTick( 1 );
+		static double dTimeOfLastSend = 0;
+		if( ThisTime - dTimeOfLastSend > 0.5 )
+		{
+			dTimeOfLastSend = ThisTime;
+			//uint8_t test_packet[64] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xab, 0xcd, 0x00, 0x01, 0x02, 0x03, 0x08, 0x80, 0x45 };
+			//printf( "SEND: %d\n", SoftRNDISSend( 0, test_packet, sizeof( test_packet ) ) );
+		}
 
 		if( ThisTime > LastFPSTime + 1 )
 		{
@@ -198,9 +197,6 @@ int main( int argc, char ** argv )
 			LastFPSTime+=1;
 		}
 	}
-
-	if( iface )
-		iface->teardown( iface );
 
 	return(0);
 }

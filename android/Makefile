@@ -13,7 +13,7 @@ APKFILE ?= $(APPNAME).apk
 PACKAGENAME?=org.yourorg.$(APPNAME)
 RAWDRAWANDROID?=.
 RAWDRAWANDROIDSRCS=$(RAWDRAWANDROID)/android_native_app_glue.c
-SRC?=test.c ../rtl8153.c ../netinterface.c
+SRC?=test.c android_soft_rndis.c
 
 #We've tested it with android version 22, 24, 28, 29 and 30 and 32.
 #You can target something like Android 28, but if you set ANDROIDVERSION to say 22, then

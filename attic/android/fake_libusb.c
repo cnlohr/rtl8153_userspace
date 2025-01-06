@@ -120,16 +120,26 @@ int libusb_submit_transfer( struct libusb_transfer * xfer )
 
 	struct usbdevfs_bulktransfer bt = {
 		.ep = xfer->endpoint,
-		.len = xfer->buffer_len,
+		.len = xfer->buffer_len, // ( xfer->endpoint & 0x80 ) ? xfer->buffer_len : xfer->actual_length,
 		.timeout = xfer->timeout,
 		.data = xfer->buffer,
 	};
 	errno = 0;
-	printf( "BULK STARTING: %02x %d\n", bt.ep, bt.timeout );
+	printf( "BULK STARTING: %02x %d -> %d [%02x %02x]\n", bt.ep, bt.timeout, bt.len, ((uint8_t*)bt.data)[0], ((uint8_t*)bt.data)[1] );
 	int r = ioctl(deviceConnectionFD, USBDEVFS_BULK, &bt);
 	printf( "BULK REPLY: (DEBUG REMOVE ME): %d %d %s\n", r, errno, strerror( errno ) );
-
-	return -1;
+	if( r >= 0 )
+	{
+		xfer->actual_length = r;
+		xfer->status = 0;
+	}
+	else
+	{
+		xfer->actual_length = 0;
+		xfer->status = -42;
+	}
+	
+	return r;
 
 
 
@@ -372,6 +382,7 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 	if( !deviceConnection )
 		goto requestPermission;
 
+#if 1
 #if 0
 	for( j = 0; j < ifaceCount; j++ )
 	{
@@ -391,24 +402,56 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 		printf( "PRECLAIM %d\n", claimOk );
 	}
 	env->CallVoidMethod( envptr, deviceConnection, Methodclose );
+#endif
+
+
+	deviceConnection = env->CallObjectMethod( envptr, manager, MethodopenDevice, matchingDevice );
+	if( !deviceConnection )
+		goto requestPermission;
+
+	for( i = 0; i < numConfigurations; i++ )
+	{
+		jobject configuration = env->CallObjectMethod( envptr, matchingDevice, MethodgetConfiguration, i );
+		int id = env->CallIntMethod( envptr, configuration, MethodconfigurationgetId );
+		jboolean configOk = env->CallBooleanMethod( envptr, deviceConnection,
+			MethodsetConfiguration, configuration );
+		printf( "Configuration: %d %d -> %d\n", i, id, configOk );
+	}
 
 	for( i = 0; i < numConfigurations; i++ )
 	{
 		jobject configuration = env->CallObjectMethod( envptr, matchingDevice, MethodgetConfiguration, i );
 		int id = env->CallIntMethod( envptr, configuration, MethodconfigurationgetId );
 		if( id == 2 ) //XXX
+		{
 			matchingConfiguration = configuration;
+		}
+
+			for( j = 0; j < ifaceCount; j++ )
+			{
+				jobject interface = env->CallObjectMethod( envptr, matchingDevice, MethodgetInterface, j );
+				jint id = env->CallIntMethod( envptr, interface, MethodgetInterfaceId );
+				jint alt = env->CallIntMethod( envptr, interface, MethodgetAlternateSetting );
+				jobject tempstr = env->CallObjectMethod( envptr, interface, MethodgetInterfaceString );
+				jobject tempstrname = env->CallObjectMethod( envptr, interface, MethodgetInterfaceName );
+
+				const char *strinterface = env->GetStringUTFChars(envptr, tempstr, 0);
+				const char *strname = tempstrname ? env->GetStringUTFChars(envptr, tempstrname, 0) : 0;
+				printf( "INTERFACE: %d: %s\n", j, strinterface );
+				env->ReleaseStringUTFChars( envptr, tempstr, strinterface );
+				if( tempstrname ) env->ReleaseStringUTFChars( envptr, tempstrname, strname );
+
+				jboolean preclaimOk = env->CallBooleanMethod( envptr, deviceConnection,
+					MethodclaimInterface, interface, 1 /* Disconnect kernel if needed */ );
+			}
 	}
 
 	if( matchingConfiguration == 0 )
 	{
 		ats+=sprintf(ats, "No matching configuration\n" );
+		printf( "NO MATCHING CONFIGURATION\n" );
 		return -9;
 	}
-
-	deviceConnection = env->CallObjectMethod( envptr, manager, MethodopenDevice, matchingDevice );
-	if( !deviceConnection )
-		goto requestPermission;
 
 	jboolean configOk = env->CallBooleanMethod( envptr, deviceConnection,
 		MethodsetConfiguration, matchingConfiguration );
@@ -462,8 +505,14 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 	jboolean claimOk = env->CallBooleanMethod( envptr, deviceConnection,
 		MethodclaimInterface, matchingInterface, 1 /* Disconnect kernel if needed */ );
 
+
+
+	configOk = env->CallBooleanMethod( envptr, deviceConnection,
+		MethodsetConfiguration, matchingConfiguration );
+
 	ats+=sprintf(ats, " config: %d  claim: %d set: %d\n", configOk, claimOk, setInterfaceOk );
 
+#if 0
 	//matchingInterface is of type android/hardware/usb/UsbInterface
 	int epCount = env->CallIntMethod( envptr, matchingInterface, MethodgetEndpointCount );
 	ats+=sprintf(ats, "Found device %d eps\n", epCount );
@@ -506,6 +555,7 @@ int ConnectAndroidUSB( int vid, int pid, libusb_device_handle ** device_handle, 
 
 	matchingEpTX = env->NewGlobalRef(envptr, matchingEpTX);
 	matchingEpRX = env->NewGlobalRef(envptr, matchingEpRX);
+#endif
 #endif
 	deviceConnectionFD = env->CallIntMethod( envptr, deviceConnection, MethodgetFileDescriptor );
 	deviceConnection = env->NewGlobalRef(envptr, deviceConnection);

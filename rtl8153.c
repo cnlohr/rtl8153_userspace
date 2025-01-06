@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <string.h>
 #ifdef __ANDROID__
-#include "fake_libusb-test.c"
+#include "android_soft_rndis.c"
 #else
 #include <libusb-1.0/libusb.h>
 #endif
@@ -424,6 +424,7 @@ int rtl8153_poll( netinterface_rtl8153 * iface, int microseconds_to_poll )
 		libusb_fill_bulk_transfer( x, iface->device_handle, IN_ENDPOINT, iface->buffer_in[0], BUFFERSIZE, cb_in, iface, 1000);
 		int r = libusb_submit_transfer( x );
 		if( r < 0 ) break;
+		cb_in( x );
 	}
 #endif
 
