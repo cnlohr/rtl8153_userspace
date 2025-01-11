@@ -73,6 +73,8 @@ static og_thread_t InitializeConnectionAndThread( const char * configfile )
 	if( hostname[0] == '-' && hostname[1] == 0 )
 		is_server = 1;
 
+	if( is_server ) printf( "Is Server\n" ); else printf( "Is Client\n" );
+
 	char tmpport[16];
 	if( !fgets( tmpport, sizeof( tmpport )-1, f ) )
 	{
@@ -101,6 +103,8 @@ static og_thread_t InitializeConnectionAndThread( const char * configfile )
 	}
 
 	nonce[1] = OGGetAbsoluteTime();
+
+	printf( "Net Base Setup\n" );
 
 	return OGCreateThread( ConnectionThread, 0 );
 }
@@ -173,6 +177,8 @@ static void * ConnectionThread( void * c )
 					sprintf( host_status, "Could not listen" );
 					continue;
 				}
+
+				printf( "Server Connected\n" );
 			}
 			else
 			{
@@ -208,6 +214,8 @@ static void * ConnectionThread( void * c )
 					sprintf( host_status, "Could not connect" );
 					continue;
 				}
+
+				printf( "Client Connected\n" );
 			}
 		}
 
