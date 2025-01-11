@@ -329,7 +329,7 @@ static void * ConnectionThread( void * c )
 						// Finish with 0
 						if( !constructed_invalid )
 						{
-							CONNECTION_PACKET_SEND( (uint8_t*)constructed_jumbo, plen );
+							CONNECTION_PACKET_SEND( (uint8_t*)constructed_jumbo, constructed_jumbo_place );
 							constructed_invalid = 1;
 						}
 					}
