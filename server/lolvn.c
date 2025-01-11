@@ -26,6 +26,18 @@ struct sockaddr_ll socket_address;
 uint8_t mactable[MACTABLESIZE][6];
 int mactableinsert = 0;
 
+int64_t eth_tx_fail;
+int64_t eth_tx_bytes;
+int64_t eth_tx_cnt;
+
+int64_t eth_rx_fail;
+int64_t eth_rx_bytes;
+int64_t eth_rx_cnt;
+
+int64_t eth_rx_pass;
+int64_t eth_rx_filt;
+int64_t eth_rx_mcst;
+
 void intHandler(int dummy) {
 	terminate = 1;
 }
@@ -52,7 +64,16 @@ int internal_pass_frame_to_ethernet( uint8_t * frame, int len )
 	}
 
 	if( connected_raw )
-		return send( rawsock, frame, len, MSG_NOSIGNAL );
+	{
+		int r = send( rawsock, frame, len, MSG_NOSIGNAL );
+		if( r <= 0 )
+			eth_tx_fail++;
+		else
+		{
+			eth_tx_cnt++;
+			eth_tx_bytes += len;
+		}
+	}
 	else
 		return -1;
 }
@@ -68,7 +89,6 @@ void PrintStatus( void )
 
 	printf( "%s: %s: %s\n", asctime (timeinfo), local_status, host_status );*/
 
-	printf( "STATUS: %s\n", local_status );
 	printf( "HOST: %s\n", host_status );
 	printf( "TXC:%10ld TXB:%10ld RXC:%10ld RXB:%10ld\n",
 		conn_cnt_tx, conn_cnt_txb, conn_cnt_rxm, conn_cnt_rxb );
@@ -77,6 +97,10 @@ void PrintStatus( void )
 		conn_cnt_jumbs_tx, conn_cnt_jumbs_tx_fail, conn_cnt_jumbs_rx, conn_cnt_jumbs_rx_fail );
 	printf( "MTI:%10ld\n", mactableinsert);
 
+	printf( "STATUS: %s\n", local_status );
+	printf( "TXF:%10ld TXC:%10ld TXB:%10ld\n", eth_tx_fail, eth_tx_cnt, eth_tx_bytes );
+	printf( "RXF:%10ld RXC:%10ld RXB:%10ld\n", eth_rx_fail, eth_rx_cnt, eth_rx_bytes );
+	printf( "PASS%10ld FILT%10ld MCST%10ld\n", eth_rx_pass, eth_rx_filt, eth_rx_mcst );
 }
 
 int ifindex_find(const char name[IFNAMSIZ], int sockfd)
@@ -144,9 +168,13 @@ void * HardwareThread( void * v )
 		int rs = recv( rawsock, hwbuffer, sizeof( hwbuffer ), 0 );
 		if( rs < 0 )
 		{
+			eth_rx_fail++;
 			shutdown( rawsock, SHUT_RDWR );
 			continue;
 		}
+
+		eth_rx_bytes+=rs;
+		eth_rx_cnt++;
 
 		if( rs > 12 )
 		{
@@ -158,7 +186,11 @@ void * HardwareThread( void * v )
 
 
 			int allow = 0;
-			if( hwbuffer[0] & 1 ) allow = 1;
+			if( hwbuffer[0] & 1 )
+			{
+				allow = 1;
+				eth_rx_mcst++;
+			}
 			else
 			{
 				int i;
@@ -177,7 +209,14 @@ void * HardwareThread( void * v )
 				same_addr );
 #endif
 			if( allow )
+			{
 				ConnectionSendPacket( hwbuffer, rs );
+				eth_rx_pass++;
+			}
+			else
+			{
+				eth_rx_filt++;
+			}
 		}
 	}
 	return 0;
