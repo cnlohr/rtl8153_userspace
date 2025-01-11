@@ -235,7 +235,7 @@ static void * ConnectionThread( void * c )
 		}
 
 		int plen = recvbuffer.len;
-		if( plen < r - HEADER_SIZE )
+		if( plen <= r - HEADER_SIZE )
 		{
 			uint32_t chachastate[16];
 			chacha_init( chachastate, sharedkey, recvbuffer.counter, recvbuffer.nonce );
@@ -256,6 +256,12 @@ static void * ConnectionThread( void * c )
 			if( checkcrc == recvbuffer.crc )
 			{
 				CONNECTION_PACKET_SEND( (uint8_t*)recvbuffer.payload, plen );
+			}
+			else
+			{
+				uint8_t * ady = (uint8_t*)recvbuffer.payload;
+				fprintf( stderr, "Bad CRC %08x != %08x [%02x %02x %02x %02x %02x]\n", checkcrc, recvbuffer.crc, 
+					ady[0], ady[1], ady[2], ady[3], ady[4], ady[5] );
 			}
 		}
 	}
