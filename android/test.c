@@ -151,6 +151,13 @@ void * EthernetThread( void * v )
 	return 0;
 }
 
+void DrawPromptNumber( int x, int y, int s, const char * prompt, int64_t n )
+{
+	char st[1024];
+	snprintf( st, 1023, "%s:%ld", prompt, n ); 
+	CNFGPenX = x; CNFGPenY = y;
+	CNFGDrawText( st, s );
+}
 int main( int argc, char ** argv )
 {
 	short screenx, screeny;
@@ -225,21 +232,44 @@ int main( int argc, char ** argv )
 
 		// Mesh in background
 		CNFGSetLineWidth( 7 );
-		CNFGPenX = 20; CNFGPenY = 120;
 		char st[4096];
-		snprintf( st, sizeof(st), "%dx%d %d %d %d %d %d %d\n%d %d\niface: %s\n",
-			screenx, screeny, lastbuttonx, lastbuttony, lastmotionx, lastmotiony, lastkey, lastkeydown, lastbid, lastmask, SoftRNDISStatusBuffer );
+		snprintf( st, sizeof(st), "%s", SoftRNDISStatusBuffer );
+		CNFGPenX = 20; CNFGPenY = 120;
+		CNFGDrawText( media_status, 9 );
+		DrawPromptNumber(   20, 170+  0, 9, "TX C:", rtk_dbg_ctr_send_cnt );
+		DrawPromptNumber(  520, 170+  0, 9, "TX B:", rtk_dbg_ctr_send_bytes );
+		DrawPromptNumber(   20, 170+ 50, 9, "RX C:", rtk_dbg_ctr_recv_cnt );
+		DrawPromptNumber(  520, 170+ 50, 9, "RX B:", rtk_dbg_ctr_recv_bytes );
+		DrawPromptNumber(   20, 170+100, 9, "TX F:", rtk_dbg_ctr_send_fault );
+		DrawPromptNumber(  520, 170+100, 9, "RX F:", rtk_dbg_ctr_recv_fault );
+		DrawPromptNumber(   20, 170+150, 9, "PARF:", rtk_dbg_ctr_parse_fault );
+		DrawPromptNumber(  520, 170+150, 9, "TX R:", rtk_dbg_ctr_send_retry );
+		DrawPromptNumber(   20, 170+200, 9, "REST:", rtk_dbg_restarts );
+		CNFGPenX = 20; CNFGPenY = 420;
 		CNFGDrawText( st, 9 );
 
-		CNFGPenX = 20; CNFGPenY = 520;
-		CNFGDrawText( media_status, 9 );
-		CNFGPenX = 20; CNFGPenY = 620;
+		int sox = 20;
+		int soy = 1000;
+		if( screenx > screeny )
+		{
+			sox = 1000;
+			soy = 120;
+		}
+		CNFGPenX = sox; CNFGPenY = soy;
 		CNFGDrawText( host_status, 9 );
-
-
+		DrawPromptNumber( sox+  0, soy+ 50, 9, "TX C:", conn_cnt_tx );
+		DrawPromptNumber( sox+500, soy+ 50, 9, "TX B:", conn_cnt_txb );
+		DrawPromptNumber( sox+  0, soy+100, 9, "RX C:", conn_cnt_rx );
+		DrawPromptNumber( sox+500, soy+100, 9, "RX B:", conn_cnt_rxb );
+		DrawPromptNumber( sox+  0, soy+150, 9, "TX F:", conn_cnt_txfail );
+		DrawPromptNumber( sox+500, soy+150, 9, "RX F:", conn_cnt_rxfail );
+		DrawPromptNumber( sox+  0, soy+200, 9, "DECF:", conn_cnt_decfail );
+		DrawPromptNumber( sox+500, soy+200, 9, "JMTC:", conn_cnt_jumbs_tx );
+		DrawPromptNumber( sox+  0, soy+250, 9, "JMTF:", conn_cnt_jumbs_tx_fail );
+		DrawPromptNumber( sox+500, soy+250, 9, "JMRC:", conn_cnt_jumbs_rx );
+		DrawPromptNumber( sox+  0, soy+300, 9, "JMRF:", conn_cnt_jumbs_rx_fail );
 
 		CNFGSetLineWidth( 2 );
-
 		// Square behind text
 		//CNFGColor( 0x303030ff );
 		//CNFGTackRectangle( 600, 0, 950, 350);

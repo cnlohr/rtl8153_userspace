@@ -18,6 +18,17 @@ enum netinterface_duplex
 	NIF_FULL,
 };
 
+
+extern int64_t rtk_dbg_ctr_send_fault;
+extern int64_t rtk_dbg_ctr_send_retry;
+extern int64_t rtk_dbg_ctr_recv_fault;
+extern int64_t rtk_dbg_ctr_parse_fault;
+extern int64_t rtk_dbg_ctr_send_cnt;
+extern int64_t rtk_dbg_ctr_recv_cnt;
+extern int64_t rtk_dbg_ctr_send_bytes;
+extern int64_t rtk_dbg_ctr_recv_bytes;
+extern int64_t rtk_dbg_restarts;
+
 // You must provide
 void SoftRNDISReceived( void * iface, uint8_t * buffer, int packetlen );
 void SoftRNDISChangeMediaState( void * iface, enum netinterface_rate, enum netinterface_duplex );

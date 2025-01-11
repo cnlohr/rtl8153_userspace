@@ -20,6 +20,17 @@ char hostname[960];
 int portnum_net_order;
 uint32_t sharedkey[8];
 
+int64_t conn_cnt_tx;
+int64_t conn_cnt_rx;
+int64_t conn_cnt_txfail;
+int64_t conn_cnt_txb;
+int64_t conn_cnt_rxb;
+int64_t conn_cnt_rxfail;
+int64_t conn_cnt_decfail;
+int64_t conn_cnt_jumbs_tx;
+int64_t conn_cnt_jumbs_rx;
+int64_t conn_cnt_jumbs_tx_fail;
+int64_t conn_cnt_jumbs_rx_fail;
 char host_status[1024];
 
 int host_socket = 0;
@@ -124,7 +135,11 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 
 	if( packetlen <= FORCE_MTU_SPLIT )
 	{
-		return InternalSendPacket( packet, packetlen, 0 );
+		int r = InternalSendPacket( packet, packetlen, 0 );
+		if( r < 0 )	
+			conn_cnt_txfail++;
+		else
+			conn_cnt_tx++;
 	}
 	else
 	{
@@ -136,9 +151,15 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 			int remain = packetlen - i * FORCE_MTU_SPLIT;
 			if( remain > FORCE_MTU_SPLIT ) remain = FORCE_MTU_SPLIT;
 			int r = InternalSendPacket( packet + i * FORCE_MTU_SPLIT, remain, last ? 1 : (i+2) );
-			if( r < 0 ) return r;
+			if( r < 0 )
+			{
+				conn_cnt_jumbs_tx_fail++;
+				return r;
+			}
 		}
+		conn_cnt_jumbs_tx++;
 	}
+	conn_cnt_txb += packetlen; 
 	return packetlen;
 }
 
@@ -262,6 +283,7 @@ static void * ConnectionThread( void * c )
 		if( r < 0 )
 		{
 			host_connected = 0;
+			conn_cnt_rxfail++;
 			shutdown( host_socket, SHUT_RDWR );
 			continue;
 		}
@@ -290,12 +312,16 @@ static void * ConnectionThread( void * c )
 				static uint8_t constructed_jumbo[12000];
 				static int constructed_jumbo_place = 0;
 				static uint32_t constructed_last_cnt = 0;
-				static int constructed_invalid = 0;
+				static int constructed_invalid = 1;
 
 				if( recvbuffer.construct == 0 )
 				{
 					// Nothing to do with jumbo frames?  Just send.
 					CONNECTION_PACKET_SEND( (uint8_t*)recvbuffer.payload, plen );
+					conn_cnt_rxb += plen;
+					conn_cnt_rx++;
+					if( constructed_invalid == 0 )
+						conn_cnt_jumbs_rx_fail++;
 					constructed_invalid = 1;
 				}
 				else
@@ -321,6 +347,7 @@ static void * ConnectionThread( void * c )
 					else
 					{
 						constructed_invalid = 1;
+						conn_cnt_jumbs_rx_fail++;
 					}
 					constructed_last_cnt = recvbuffer.counter;
 
@@ -330,7 +357,9 @@ static void * ConnectionThread( void * c )
 						if( !constructed_invalid )
 						{
 							CONNECTION_PACKET_SEND( (uint8_t*)constructed_jumbo, constructed_jumbo_place );
+							conn_cnt_rxb += plen;
 							constructed_invalid = 1;
+							conn_cnt_jumbs_rx++;
 						}
 					}
 				}
@@ -340,6 +369,7 @@ static void * ConnectionThread( void * c )
 				uint8_t * ady = (uint8_t*)recvbuffer.payload;
 				fprintf( stderr, "Bad CRC %08x != %08x [%02x %02x %02x %02x %02x %02x]\n", checkcrc, recvbuffer.crc, 
 					ady[0], ady[1], ady[2], ady[3], ady[4], ady[5] );
+				conn_cnt_decfail++;
 			}
 		}
 	}

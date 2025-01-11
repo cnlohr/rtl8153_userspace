@@ -15,6 +15,16 @@
 const int VID = 0x0bda;
 const int PID = 0x8153;
 
+int64_t rtk_dbg_ctr_send_fault = 0;
+int64_t rtk_dbg_ctr_send_retry = 0;
+int64_t rtk_dbg_ctr_recv_fault = 0;
+int64_t rtk_dbg_ctr_parse_fault = 0;
+int64_t rtk_dbg_ctr_send_cnt = 0;
+int64_t rtk_dbg_ctr_recv_cnt = 0;
+int64_t rtk_dbg_ctr_send_bytes = 0;
+int64_t rtk_dbg_ctr_recv_bytes = 0;
+int64_t rtk_dbg_restarts = 0;
+
 
 #define USBFS_DISCONNECT_CLAIM_IF_DRIVER	0x01
 #define USBFS_DISCONNECT_CLAIM_EXCEPT_DRIVER	0x02
@@ -369,7 +379,7 @@ static int Internal_BulkRequest( void * handle, int ep, uint8_t * data, int len,
 		.data = data,
 	};
 	errno = 0;
-
+#if 0
 	if( 0 && ep == 0x02 )
 	{
 		int j;
@@ -379,12 +389,15 @@ static int Internal_BulkRequest( void * handle, int ep, uint8_t * data, int len,
 		}
 		printf( "BULK STARTING: %02x %d -> %d [%02x %02x]\n", bt.ep, bt.timeout, bt.len, ((uint8_t*)bt.data)[0], ((uint8_t*)bt.data)[1] );
 	}
+#endif
 	errno = 0;
 	int r = ioctl(deviceConnectionFD, USBDEVFS_BULK, &bt);
+#if 0
 	if( 0 && ep == 0x02 )
 	{
 		printf( "BULK REPLY: (DEBUG REMOVE ME): %d %d %s\n", r, errno, strerror( errno ) );
 	}
+#endif
 	if( errno == 19 )
 	{
 		SoftRNDISClose();
@@ -397,10 +410,14 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 	void * iface = 0;
 	int i;
 
+	if( !deviceConnectionFD ) return 0;
+
 	static uint8_t packetbuffer[12000];
 	static int lastptr = 0;
 
+	errno = 0;
 	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, 1024, 1 );
+
 	if( r >= 0 )
 	{
 		int declenn;
@@ -416,9 +433,16 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 			}
 			printf( "\n" );
 #endif
+			if( declenn > 10000 )
+			{
+				rtk_dbg_ctr_parse_fault++;
+				lastptr = 0;
+				break;
+			}
 			if( lastptr < declenn + 24 ) break; // 24 = wacky Realtek header size.
-
-			SoftRNDISReceived( 0, packetbuffer + 24, lastptr - 24 );
+			SoftRNDISReceived( 0, packetbuffer + 24, declenn );
+			rtk_dbg_ctr_recv_bytes += declenn;
+			rtk_dbg_ctr_recv_cnt++;
 
 			int to_remove = declenn+24;
 
@@ -438,11 +462,13 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 			lastptr = 0;
 		}
 	}
+	else
+	{
+		if( errno != 110 )
+			rtk_dbg_ctr_recv_fault++;
+	}
 	return 0;
 }
-
-
-
 
 
 int SoftRNDISCheckMedia()
@@ -498,6 +524,8 @@ int SoftRNDISConnect()
 		ats+=sprintf(ats, "Comms failed.  Waiting to reconnect." );
 		return -1;
 	}
+
+	rtk_dbg_restarts++;
 
 	struct android_app* app = gapp;
 	const struct JNINativeInterface * env = 0;
@@ -811,21 +839,27 @@ requestPermission:
 int SoftRNDISTick( int timeout )
 {
 	if( !deviceConnectionFD )
+	{
 		SoftRNDISConnect();
+		if( !deviceConnectionFD ) usleep(100000);
+	}
 
 	while( Internal_SoftRNDISHandleRX( timeout ) );
 
 	double dNow = OGGetAbsoluteTime();
+
 	if( dNow - dTimeOfLastMediaCheck > 1 )
 	{
 		SoftRNDISCheckMedia();
 		dTimeOfLastMediaCheck = dNow;
 	}
+
 	return 0;
 }
 
 int SoftRNDISSend( void * handle, uint8_t * buffer, int packetlen )
 {
+	if( !deviceConnectionFD ) return -3;
 
 #if 0
 	// From the drivers here: https://www.realtek.com/Download/List?cate_id=585
@@ -857,6 +891,7 @@ struct tx_desc {
 	const static uint8_t header_fix[] = {
 		0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00,
 	};
+	int tries = 0;
 	int fulllen = packetlen+sizeof(header_fix);
 	uint8_t sendpak[fulllen];
 	memcpy( sendpak, header_fix, sizeof(header_fix) );
@@ -869,12 +904,23 @@ struct tx_desc {
 		int tosend = fulllen - ofs;
 		if( tosend > 1024 ) tosend = 1024;
 		//printf( "Sending: %d\n", tosend );
+		retry:;
 		int r = Internal_BulkRequest( handle, 0x02, sendpak + ofs, tosend, 100 );
 		if( !r )
 		{
 			fprintf( stderr, "Fault sending.\n" );
+			if( tries++ < 4 )
+			{
+				rtk_dbg_ctr_send_retry++;
+				goto retry;
+			}
+			tries = 0;
+			rtk_dbg_ctr_send_fault++;
 		}
+		rtk_dbg_ctr_send_bytes += (ofs == 0) ? ( tosend - sizeof(header_fix) ) : tosend;
+		tries = 0;
 	}
+	rtk_dbg_ctr_send_cnt++;
 	return 0;
 }
 
