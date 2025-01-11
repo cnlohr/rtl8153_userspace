@@ -11,6 +11,8 @@
 #include "crc32.h"
 #include "chacha20.h"
 
+#define FORCE_MTU_SPLIT 1300
+
 extern volatile int terminate;
 
 char hostname[960];
@@ -35,8 +37,10 @@ struct packetStructureMaxPL
 	uint32_t nonce[3];
 	uint32_t counter;
 	uint32_t crc;
-	uint32_t len;
-	uint32_t payload[9980/4];
+	uint16_t len;
+	uint8_t  construct;
+	uint8_t  reserved;
+	uint32_t payload[FORCE_MTU_SPLIT/4+15];
 } __attribute__((packed));
 
 struct packetStructureMinPL
@@ -44,7 +48,9 @@ struct packetStructureMinPL
 	uint32_t nonce[3];
 	uint32_t counter;
 	uint32_t crc;
-	uint32_t len;
+	uint16_t len;
+	uint8_t  construct;
+	uint8_t  reserved;
 	uint32_t payload[0];
 } __attribute__((packed));
 
@@ -109,17 +115,41 @@ static og_thread_t InitializeConnectionAndThread( const char * configfile )
 	return OGCreateThread( ConnectionThread, 0 );
 }
 
+static int InternalSendPacket( uint8_t * packet, int packetlen, int construct );
+
 static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 {
 	if( !host_connected ) return -1;
 
+	if( packetlen <= FORCE_MTU_SPLIT )
+	{
+		return InternalSendPacket( packet, packetlen, 0 );
+	}
+	else
+	{
+		int i;
+		int packs = (packetlen-1) / FORCE_MTU_SPLIT + 1;
+		for( i = 0; i < packs; i++ )
+		{
+			int last = i == packs-1;
+			int remain = packetlen - i * FORCE_MTU_SPLIT;
+			if( remain > FORCE_MTU_SPLIT ) remain = FORCE_MTU_SPLIT;
+			int r = InternalSendPacket( packet + i * FORCE_MTU_SPLIT, remain, last ? 1 : (i+2) );
+			if( r < 0 ) return r;
+		}
+	}
+	return packetlen;
+}
+
+static int InternalSendPacket( uint8_t * packet, int packetlen, int construct )
+{
 	uint32_t dtos[((packetlen+63)+HEADER_SIZE)/4];
 	dtos[0] = nonce[0];
 	dtos[1] = nonce[1];
 	dtos[2] = nonce[2];
 	dtos[3] = __atomic_fetch_add( &global_counter, 1, __ATOMIC_SEQ_CST );
 	dtos[4] = crc32comp( 0xffffffff, packet, packetlen );
-	dtos[5] = packetlen;
+	dtos[5] = packetlen | (construct<<16);
 	memcpy( dtos + HEADER_SIZE/4, packet, packetlen );
 
 	uint32_t chachastate[16];
@@ -256,7 +286,51 @@ static void * ConnectionThread( void * c )
 
 			if( checkcrc == recvbuffer.crc )
 			{
-				CONNECTION_PACKET_SEND( (uint8_t*)recvbuffer.payload, plen );
+				static uint8_t constructed_jumbo[12000];
+				static int constructed_jumbo_place = 0;
+				static uint32_t constructed_last_cnt = 0;
+				static int constructed_invalid = 0;
+
+				if( recvbuffer.construct == 0 )
+				{
+					// Nothing to do with jumbo frames?  Just send.
+					CONNECTION_PACKET_SEND( (uint8_t*)recvbuffer.payload, plen );
+					constructed_invalid = 1;
+				}
+				else
+				{
+					// Otherwise we are dealing with a constructed frame.
+					if( recvbuffer.construct == 2 )
+					{
+						// Start constructing the jumbo frame with 2.
+						constructed_invalid = 0;
+						constructed_jumbo_place = 0;
+						constructed_last_cnt = recvbuffer.counter-1;
+					}
+
+					if( !constructed_invalid &&
+						(uint32_t)(constructed_last_cnt+1) == recvbuffer.counter &&
+						constructed_jumbo_place + plen < sizeof( constructed_jumbo) )
+					{
+						memcpy( constructed_jumbo + constructed_jumbo_place,
+							recvbuffer.payload, plen );
+						constructed_jumbo_place += plen;
+					}
+					else
+					{
+						constructed_invalid = 1;
+					}
+
+					if( recvbuffer.construct == 1 )
+					{
+						// Finish with 0
+						if( !constructed_invalid )
+						{
+							CONNECTION_PACKET_SEND( (uint8_t*)constructed_jumbo, plen );
+							constructed_invalid = 1;
+						}
+					}
+				}
 			}
 			else
 			{

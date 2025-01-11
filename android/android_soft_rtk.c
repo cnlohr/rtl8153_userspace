@@ -408,16 +408,17 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 		do
 		{
 			declenn = packetbuffer[0] + (packetbuffer[1]<<8);
-			printf( "Packet: %d %d %d\n", r, lastptr, declenn );
+#if 0
+			printf( "Packet x: %d %d %d\n", r, lastptr, declenn );
 			for( i = 0; i < 24; i++ )
 			{
 				printf( "%02x ", packetbuffer[i] );
 			}
 			printf( "\n" );
+#endif
+			if( lastptr < declenn + 24 ) break; // 24 = wacky Realtek header size.
 
-			if( lastptr + 24 < declenn ) break; // 24 = wacky Realtek header size.
-
-			SoftRNDISReceived( 0, packetbuffer, lastptr );
+			SoftRNDISReceived( 0, packetbuffer + 24, lastptr - 24 );
 
 			int to_remove = declenn+24;
 
@@ -429,7 +430,7 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 			{
 				packetbuffer[i] = packetbuffer[i+to_remove];
 			}
-			printf( "Processed / remove: %d %d\n", lastptr, to_remove );
+			//printf( "Processed / remove: %d %d\n", lastptr, to_remove );
 			lastptr -= to_remove;
 		} while( 1 );
 		if( lastptr > sizeof( packetbuffer ) - 1024 || declenn > sizeof( packetbuffer ) - 1024 )
@@ -867,11 +868,11 @@ struct tx_desc {
 	{
 		int tosend = fulllen - ofs;
 		if( tosend > 1024 ) tosend = 1024;
-		printf( "Sending: %d\n", tosend );
+		//printf( "Sending: %d\n", tosend );
 		int r = Internal_BulkRequest( handle, 0x02, sendpak + ofs, tosend, 100 );
 		if( !r )
 		{
-			printf( "Fault sending.\n" );
+			fprintf( stderr, "Fault sending.\n" );
 		}
 	}
 	return 0;

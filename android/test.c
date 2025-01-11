@@ -102,7 +102,7 @@ char media_status[1024];
 
 void SoftRNDISReceived( void * iface, uint8_t * packet, int packetlen )
 {
-	printf( "ALen: %d\n", packetlen );
+//	printf( "ALen: %d\n", packetlen );
 #if 0
 	int i;
 	for( i = 0; i < packetlen; i += 16 )
