@@ -11,7 +11,7 @@
 #include "crc32.h"
 #include "chacha20.h"
 
-#define FORCE_MTU_SPLIT 1200
+#define FORCE_MTU_SPLIT 1480
 #define MAX_FORCE_MTU_SPLIT 12000
 
 extern volatile int terminate;
