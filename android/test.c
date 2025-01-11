@@ -269,6 +269,11 @@ int main( int argc, char ** argv )
 		DrawPromptNumber( sox+500, soy+250, 9, "JMRC:", conn_cnt_jumbs_rx );
 		DrawPromptNumber( sox+  0, soy+300, 9, "JMRF:", conn_cnt_jumbs_rx_fail );
 
+		DrawPromptNumber( sox+500, soy+300, 9, "RLOS:", conn_cnt_rxloss );
+		DrawPromptNumber( sox+  0, soy+350, 9, "ROOO:", conn_cnt_rxooo );
+		DrawPromptNumber( sox+500, soy+350, 9, "RDUP:", conn_cnt_rxdup );
+		DrawPromptNumber( sox+  0, soy+400, 9, "LOSS%", (100*conn_cnt_rxloss)/(conn_cnt_rx+conn_cnt_rxloss) );
+
 		CNFGSetLineWidth( 2 );
 		// Square behind text
 		//CNFGColor( 0x303030ff );

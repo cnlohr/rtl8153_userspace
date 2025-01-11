@@ -26,6 +26,9 @@ int64_t conn_cnt_txfail;
 int64_t conn_cnt_txb;
 int64_t conn_cnt_rxb;
 int64_t conn_cnt_rxfail;
+int64_t conn_cnt_rxloss;
+int64_t conn_cnt_rxooo;
+int64_t conn_cnt_rxdup;
 int64_t conn_cnt_decfail;
 int64_t conn_cnt_jumbs_tx;
 int64_t conn_cnt_jumbs_rx;
@@ -197,6 +200,7 @@ static int InternalSendPacket( uint8_t * packet, int packetlen, int construct )
 
 static void * ConnectionThread( void * c )
 {
+	uint32_t last_cnt = 0;
 	while( !terminate )
 	{
 		if( !host_connected )
@@ -292,6 +296,7 @@ static void * ConnectionThread( void * c )
 		if( plen <= r - HEADER_SIZE )
 		{
 			uint32_t chachastate[16];
+
 			chacha_init( chachastate, sharedkey, recvbuffer.counter, recvbuffer.nonce );
 
 			int need_blocks = ((r - 20) + 63) / 64;
@@ -309,6 +314,25 @@ static void * ConnectionThread( void * c )
 
 			if( checkcrc == recvbuffer.crc )
 			{
+
+				int cntdiff = recvbuffer.counter - last_cnt;
+
+				if( cntdiff > 1 )
+				{
+					if( cntdiff > 1000 ) cntdiff = 1000;
+					conn_cnt_rxloss += cntdiff;
+				}
+				else if( cntdiff < 0)
+				{
+					conn_cnt_rxooo++;
+				}
+				else if( cntdiff == 0 )
+				{
+					conn_cnt_rxdup++;
+				}
+				last_cnt = recvbuffer.counter;
+
+
 				static uint8_t constructed_jumbo[12000];
 				static int constructed_jumbo_place = 0;
 				static uint32_t constructed_last_cnt = 0;

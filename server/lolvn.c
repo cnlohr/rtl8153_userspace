@@ -95,6 +95,12 @@ void PrintStatus( void )
 	printf( "TXF:%10ld RXF:%10ld DECF%10ld\n", conn_cnt_txfail, conn_cnt_rxfail, conn_cnt_decfail );
 	printf( "JMTC%10ld JMTF%10ld JMRC%10ld JMRF%10ld\n",
 		conn_cnt_jumbs_tx, conn_cnt_jumbs_tx_fail, conn_cnt_jumbs_rx, conn_cnt_jumbs_rx_fail );
+
+	printf( "RLOS%10ld ROOO%10ld RDUP%10ld LOSS%3ld%%\n",
+		conn_cnt_rxloss, conn_cnt_rxooo, conn_cnt_rxdup,
+		(100*conn_cnt_rxloss)/(conn_cnt_rx+conn_cnt_rxloss) );
+
+
 	printf( "MTI:%10ld\n", mactableinsert);
 
 	printf( "STATUS: %s\n", local_status );
