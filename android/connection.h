@@ -113,7 +113,7 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 {
 	if( !host_connected ) return -1;
 
-	uint32_t dtos[((packetlen+15)+HEADER_SIZE)/4];
+	uint32_t dtos[((packetlen+63)+HEADER_SIZE)/4];
 	dtos[0] = nonce[0];
 	dtos[1] = nonce[1];
 	dtos[2] = nonce[2];
