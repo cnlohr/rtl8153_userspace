@@ -384,6 +384,7 @@ static void * ConnectionThread( void * c )
 							CONNECTION_PACKET_SEND( (uint8_t*)constructed_jumbo, constructed_jumbo_place );
 							conn_cnt_rxb += plen;
 							constructed_invalid = 1;
+							conn_cnt_rx++;
 							conn_cnt_jumbs_rx++;
 						}
 					}
