@@ -14,14 +14,17 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#include "android_soft_rndis.h"
+#include "android_soft_rtk.h"
 #include "os_generic.h"
 
 #define CNFG_IMPLEMENTATION
 #include "rawdraw_sf.h"
 
-ALooper * l;
+#define CONNECTION_PACKET_SEND( x, y ) SoftRNDISSend( 0, x, y )
+#include "connection.h"
 
+ALooper * l;
+volatile int terminate;
 unsigned frames = 0;
 unsigned long iframeno = 0;
 
@@ -73,6 +76,7 @@ extern struct android_app * gapp;
 
 int HandleDestroy()
 {
+	terminate = 1;
 	printf( "Destroying\n" );
 	return 0;
 }
@@ -99,7 +103,7 @@ char media_status[1024];
 void SoftRNDISReceived( void * iface, uint8_t * packet, int packetlen )
 {
 	printf( "ALen: %d\n", packetlen );
-#if 1
+#if 0
 	int i;
 	for( i = 0; i < packetlen; i += 16 )
 	{
@@ -126,13 +130,26 @@ void SoftRNDISReceived( void * iface, uint8_t * packet, int packetlen )
 		printf( "\n" );
 	}
 #endif
+
+	ConnectionSendPacket( packet, packetlen );
 }
 
 void SoftRNDISChangeMediaState( void * iface, enum netinterface_rate rate, enum netinterface_duplex duplex )
 {
-	sprintf( media_status, "MEDIA: %d %d\n", rate, duplex );
+	memset( media_status, 0, sizeof( media_status ) );
+	sprintf( media_status, "Media: %s %s\n", 
+		(const char * []){ "NO LINK", "10M", "100M", "1000M" }[rate],
+		(const char * []){ "", "Half", "Full"}[duplex] );
 }
 
+void * EthernetThread( void * v )
+{
+	while( !terminate )
+	{
+		SoftRNDISTick( 1000 );
+	}
+	return 0;
+}
 
 int main( int argc, char ** argv )
 {
@@ -142,19 +159,63 @@ int main( int argc, char ** argv )
 
 	printf( "Starting Up\n" );
 
-	CNFGBGColor = 0x000040ff;
 	CNFGSetup( "Test Bench", -1, -1 );
 	
 	HandleWindowTermination = HandleThisWindowTermination;
 
 	printf( "Startup Complete\n" );
 
+	og_thread_t * ethernetThread = OGCreateThread( EthernetThread, 0 );
 
-	while(1)
+	while( !AndroidHasPermissions("READ_EXTERNAL_STORAGE") ||
+		!AndroidHasPermissions("WRITE_EXTERNAL_STORAGE") ||
+		!AndroidHasPermissions("INTERNET") ||
+		!AndroidHasPermissions("WRITE_EXTERNAL_STORAGE") )
+	{
+		CNFGHandleInput();
+		CNFGBGColor = 0x500000FF;
+		CNFGClearFrame();
+		CNFGSwapBuffers();
+		if( !AndroidHasPermissions("READ_EXTERNAL_STORAGE") ) AndroidRequestAppPermissions( "READ_EXTERNAL_STORAGE" ); 
+		if( !AndroidHasPermissions("WRITE_EXTERNAL_STORAGE") ) AndroidRequestAppPermissions( "WRITE_EXTERNAL_STORAGE" );
+		if( !AndroidHasPermissions("INTERNET") ) AndroidRequestAppPermissions( "INTERNET" );
+	}
+
+#if 0
+	// Me seeing if I can get more permissions.
+//android.hardware.usb.host
+	{
+		const struct JNINativeInterface * env = 0;
+		const struct JNINativeInterface ** envptr = &env;
+		const struct JNIInvokeInterface ** jniiptr = gapp->activity->vm;
+		const struct JNIInvokeInterface * jnii = *jniiptr;
+
+		jnii->AttachCurrentThread( jniiptr, &envptr, NULL);
+		env = (*envptr);
+		jclass activityClass = env->FindClass( envptr, "android/app/NativeActivity");
+		jobject lNativeActivity = gapp->activity->clazz;
+		jobject activity = gapp->activity->clazz;
+
+		jclass ClassManifestpermission = env->FindClass( ENVCALL "android/Manifest$permission");
+		jfieldID lid_PERM = env->GetStaticFieldID( ENVCALL ClassManifestpermission, "USB_PERMISSION", "Ljava/lang/String;" );
+		jstring ls_PERM = (jstring)(env->GetStaticObjectField( ENVCALL ClassManifestpermission, lid_PERM )); 
+		jobjectArray perm_array = env->NewObjectArray( ENVCALL 1, env->FindClass( ENVCALL "java/lang/String"), env->NewStringUTF( ENVCALL "" ) );
+		env->SetObjectArrayElement( ENVCALL perm_array, 0, ls_PERM );
+
+		jclass ClassActivity = env->FindClass( ENVCALL "android/app/Activity" );
+		jmethodID MethodrequestPermissions = env->GetMethodID( ENVCALL ClassActivity, "requestPermissions", "([Ljava/lang/String;I)V" );
+		env->CallVoidMethod( ENVCALL activity, MethodrequestPermissions, perm_array, 0 );
+		JAVA_CALL_DETACH
+	}
+#endif
+
+	CNFGBGColor = 0x000040ff;
+
+	og_thread_t * connectionThread = InitializeConnectionAndThread();
+
+	while(!terminate && CNFGHandleInput())
 	{
 		iframeno++;
-
-		CNFGHandleInput();
 
 		if( suspended ) { usleep(50000); continue; }
 
@@ -164,16 +225,24 @@ int main( int argc, char ** argv )
 
 		// Mesh in background
 		CNFGSetLineWidth( 7 );
-		CNFGPenX = 0; CNFGPenY = 480;
+		CNFGPenX = 20; CNFGPenY = 120;
 		char st[4096];
-		snprintf( st, sizeof(st), "%dx%d %d %d %d %d %d %d\n%d %d\niface: %s\nmedia: %s",
-			screenx, screeny, lastbuttonx, lastbuttony, lastmotionx, lastmotiony, lastkey, lastkeydown, lastbid, lastmask, SoftRNDISStatusBuffer, media_status );
+		snprintf( st, sizeof(st), "%dx%d %d %d %d %d %d %d\n%d %d\niface: %s\n",
+			screenx, screeny, lastbuttonx, lastbuttony, lastmotionx, lastmotiony, lastkey, lastkeydown, lastbid, lastmask, SoftRNDISStatusBuffer );
 		CNFGDrawText( st, 9 );
+
+		CNFGPenX = 20; CNFGPenY = 520;
+		CNFGDrawText( media_status, 9 );
+		CNFGPenX = 20; CNFGPenY = 620;
+		CNFGDrawText( host_status, 9 );
+
+
+
 		CNFGSetLineWidth( 2 );
 
 		// Square behind text
-		CNFGColor( 0x303030ff );
-		CNFGTackRectangle( 600, 0, 950, 350);
+		//CNFGColor( 0x303030ff );
+		//CNFGTackRectangle( 600, 0, 950, 350);
 
 		frames++;
 		//On Android, CNFGSwapBuffers must be called, and CNFGUpdateScreenWithBitmap does not have an implied framebuffer swap.
@@ -181,7 +250,6 @@ int main( int argc, char ** argv )
 
 		ThisTime = OGGetAbsoluteTime();
 
-		SoftRNDISTick( 1 );
 		static double dTimeOfLastSend = 0;
 		if( ThisTime - dTimeOfLastSend > 0.5 )
 		{
@@ -197,6 +265,9 @@ int main( int argc, char ** argv )
 			LastFPSTime+=1;
 		}
 	}
+
+	OGJoinThread( ethernetThread );
+	OGJoinThread( connectionThread );
 
 	return(0);
 }

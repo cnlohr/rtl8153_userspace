@@ -10,7 +10,7 @@
 #include <android_native_app_glue.h>
 #include <string.h>
 #include <linux/ioctl.h>
-#include "android_soft_rndis.h"
+#include "android_soft_rtk.h"
 
 const int VID = 0x0bda;
 const int PID = 0x8153;
@@ -395,29 +395,46 @@ static int Internal_BulkRequest( void * handle, int ep, uint8_t * data, int len,
 static int Internal_SoftRNDISHandleRX( int timeout )
 {
 	void * iface = 0;
+	int i;
 
 	static uint8_t packetbuffer[12000];
 	static int lastptr = 0;
-//XXX TODO Pick up here
-	uint8_t rxbuffer[1024];
-	int r = Internal_BulkRequest( iface, 0x81, rxbuffer, sizeof( rxbuffer ), 1 );
+
+	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, 1024, 1 );
 	if( r >= 0 )
 	{
-		if( lastptr < sizeof( packetbuffer ) - r )
-			memcpy( packetbuffer + lastptr, rxbuffer, r );
-		int declenn = packetbuffer[0] + (packetbuffer[1]<<8);
+		int declenn;
 		lastptr += r;
+		do
+		{
+			declenn = packetbuffer[0] + (packetbuffer[1]<<8);
+			printf( "Packet: %d %d %d\n", r, lastptr, declenn );
+			for( i = 0; i < 24; i++ )
+			{
+				printf( "%02x ", packetbuffer[i] );
+			}
+			printf( "\n" );
 
-		printf( "Packet: %d %d %d\n", r, lastptr, declenn );
-		if( lastptr + 24 >= declenn ) // 24 = wacky Realtek header size.
-		{
+			if( lastptr + 24 < declenn ) break; // 24 = wacky Realtek header size.
+
 			SoftRNDISReceived( 0, packetbuffer, lastptr );
-			lastptr = 0;
-			// Do stuff.
-		}
-		if( lastptr > sizeof( packetbuffer ) - sizeof( rxbuffer) || declenn >sizeof( packetbuffer ) - sizeof( rxbuffer) )
+
+			int to_remove = declenn+24;
+
+			// Round up if possible.
+			int to_remove_roundup = (to_remove + 8) & ~7;
+			if( lastptr >= to_remove_roundup ) to_remove = to_remove_roundup;
+
+			for( i = 0; i < lastptr - to_remove; i++ )
+			{
+				packetbuffer[i] = packetbuffer[i+to_remove];
+			}
+			printf( "Processed / remove: %d %d\n", lastptr, to_remove );
+			lastptr -= to_remove;
+		} while( 1 );
+		if( lastptr > sizeof( packetbuffer ) - 1024 || declenn > sizeof( packetbuffer ) - 1024 )
 		{
-			declenn = 0;
+			lastptr = 0;
 		}
 	}
 	return 0;
@@ -463,15 +480,15 @@ int SoftRNDISClose()
 
 int SoftRNDISConnect()
 {
-	int i;
+//	int i;
 	void * iface = 0; // for later
 
 	if( deviceConnectionFD ) return 0;
 
 	char * ats = SoftRNDISStatusBuffer;
 
-	int SELECTED_CONFIGURATION = 2;
-	int SELECTED_INTERFACE = 1;
+//	int SELECTED_CONFIGURATION = 2;
+//	int SELECTED_INTERFACE = 1;
 
 	double dNow = OGGetAbsoluteTime();
 	//Don't permit 
@@ -503,7 +520,7 @@ int SoftRNDISConnect()
 	jobject manager = env->CallObjectMethod( envptr, lNativeActivity, MethodgetSystemService, USB_SERVICE);
 			//Actually returns an android/hardware/usb/UsbManager
 	jclass ClassUsbManager = env->FindClass( envptr, "android/hardware/usb/UsbManager" );
-	jclass ClassUsbConfiguration = env->FindClass( envptr, "android/hardware/usb/UsbConfiguration" );
+//	jclass ClassUsbConfiguration = env->FindClass( envptr, "android/hardware/usb/UsbConfiguration" );
 
 	//HashMap<String, UsbDevice> deviceList = mManager.getDeviceList();
 	jmethodID MethodgetDeviceList = env->GetMethodID( envptr, ClassUsbManager, "getDeviceList", "()Ljava/util/HashMap;" );
@@ -527,42 +544,42 @@ int SoftRNDISConnect()
 	jmethodID Methodnext = env->GetMethodID( envptr, ClassIterator, "next", "()Ljava/lang/Object;" );
 
 	jclass ClassUsbDevice = env->FindClass( envptr, "android/hardware/usb/UsbDevice" );
-	jclass ClassUsbInterface = env->FindClass( envptr, "android/hardware/usb/UsbInterface" );
-	jclass ClassUsbEndpoint = env->FindClass( envptr, "android/hardware/usb/UsbEndpoint" );
+//	jclass ClassUsbInterface = env->FindClass( envptr, "android/hardware/usb/UsbInterface" );
+//	jclass ClassUsbEndpoint = env->FindClass( envptr, "android/hardware/usb/UsbEndpoint" );
 	jclass ClassUsbDeviceConnection = env->FindClass( envptr, "android/hardware/usb/UsbDeviceConnection" );
 	jmethodID MethodgetDeviceName = env->GetMethodID( envptr, ClassUsbDevice, "getDeviceName", "()Ljava/lang/String;" );
-	jmethodID MethodgetSerialNumber = env->GetMethodID( envptr, ClassUsbDevice, "getSerialNumber", "()Ljava/lang/String;" );
-	jmethodID MethodgetConfigurationCount = env->GetMethodID( envptr, ClassUsbDevice, "getConfigurationCount", "()I" );
-	jmethodID MethodgetConfiguration = env->GetMethodID( envptr, ClassUsbDevice, "getConfiguration", "(I)Landroid/hardware/usb/UsbConfiguration;" );
+//	jmethodID MethodgetSerialNumber = env->GetMethodID( envptr, ClassUsbDevice, "getSerialNumber", "()Ljava/lang/String;" );
+//	jmethodID MethodgetConfigurationCount = env->GetMethodID( envptr, ClassUsbDevice, "getConfigurationCount", "()I" );
+//	jmethodID MethodgetConfiguration = env->GetMethodID( envptr, ClassUsbDevice, "getConfiguration", "(I)Landroid/hardware/usb/UsbConfiguration;" );
 
 	jmethodID MethodgetVendorId = env->GetMethodID( envptr, ClassUsbDevice, "getVendorId", "()I" );
 	jmethodID MethodgetProductId = env->GetMethodID( envptr, ClassUsbDevice, "getProductId", "()I" );
-	jmethodID MethodgetInterfaceCount = env->GetMethodID( envptr, ClassUsbDevice, "getInterfaceCount", "()I" );
-	jmethodID MethodgetInterface = env->GetMethodID( envptr, ClassUsbDevice, "getInterface", "(I)Landroid/hardware/usb/UsbInterface;" );
+//	jmethodID MethodgetInterfaceCount = env->GetMethodID( envptr, ClassUsbDevice, "getInterfaceCount", "()I" );
+//	jmethodID MethodgetInterface = env->GetMethodID( envptr, ClassUsbDevice, "getInterface", "(I)Landroid/hardware/usb/UsbInterface;" );
 
-	jmethodID MethodgetAlternateSetting = env->GetMethodID( envptr, ClassUsbInterface, "getAlternateSetting", "()I" );
-	jmethodID MethodgetInterfaceId = env->GetMethodID( envptr, ClassUsbInterface, "getId", "()I" );
-	jmethodID MethodgetInterfaceString = env->GetMethodID( envptr, ClassUsbInterface, "toString", "()Ljava/lang/String;" );
-	jmethodID MethodgetInterfaceName = env->GetMethodID( envptr, ClassUsbInterface, "getName", "()Ljava/lang/String;" );
+//	jmethodID MethodgetAlternateSetting = env->GetMethodID( envptr, ClassUsbInterface, "getAlternateSetting", "()I" );
+//	jmethodID MethodgetInterfaceId = env->GetMethodID( envptr, ClassUsbInterface, "getId", "()I" );
+//	jmethodID MethodgetInterfaceString = env->GetMethodID( envptr, ClassUsbInterface, "toString", "()Ljava/lang/String;" );
+//	jmethodID MethodgetInterfaceName = env->GetMethodID( envptr, ClassUsbInterface, "getName", "()Ljava/lang/String;" );
 
-	jmethodID MethodgetEndpointCount = env->GetMethodID( envptr, ClassUsbInterface, "getEndpointCount", "()I" );
-	jmethodID MethodgetEndpoint = env->GetMethodID( envptr, ClassUsbInterface, "getEndpoint", "(I)Landroid/hardware/usb/UsbEndpoint;" );
+//	jmethodID MethodgetEndpointCount = env->GetMethodID( envptr, ClassUsbInterface, "getEndpointCount", "()I" );
+//	jmethodID MethodgetEndpoint = env->GetMethodID( envptr, ClassUsbInterface, "getEndpoint", "(I)Landroid/hardware/usb/UsbEndpoint;" );
 
-	jmethodID MethodgetAddress = env->GetMethodID( envptr, ClassUsbEndpoint, "getAddress", "()I" );
-	jmethodID MethodgetMaxPacketSize = env->GetMethodID( envptr, ClassUsbEndpoint, "getMaxPacketSize", "()I" );
-	jmethodID MethodsetConfiguration = env->GetMethodID( envptr, ClassUsbDeviceConnection, "setConfiguration", "(Landroid/hardware/usb/UsbConfiguration;)Z" );
-	jmethodID MethodconfigurationgetId = env->GetMethodID( envptr, ClassUsbConfiguration, "getId", "()I" );
+//	jmethodID MethodgetAddress = env->GetMethodID( envptr, ClassUsbEndpoint, "getAddress", "()I" );
+//	jmethodID MethodgetMaxPacketSize = env->GetMethodID( envptr, ClassUsbEndpoint, "getMaxPacketSize", "()I" );
+//	jmethodID MethodsetConfiguration = env->GetMethodID( envptr, ClassUsbDeviceConnection, "setConfiguration", "(Landroid/hardware/usb/UsbConfiguration;)Z" );
+//	jmethodID MethodconfigurationgetId = env->GetMethodID( envptr, ClassUsbConfiguration, "getId", "()I" );
 
 	jmethodID MethodopenDevice = env->GetMethodID( envptr, ClassUsbManager, "openDevice", "(Landroid/hardware/usb/UsbDevice;)Landroid/hardware/usb/UsbDeviceConnection;" );
-	jmethodID Methodclose = env->GetMethodID( envptr, ClassUsbDeviceConnection, "close", "()V" );
+//	jmethodID Methodclose = env->GetMethodID( envptr, ClassUsbDeviceConnection, "close", "()V" );
 	jmethodID MethodrequestPermission = env->GetMethodID( envptr, ClassUsbManager, "requestPermission", "(Landroid/hardware/usb/UsbDevice;Landroid/app/PendingIntent;)V" );
 	jmethodID MethodhasPermission = env->GetMethodID( envptr, ClassUsbManager, "hasPermission", "(Landroid/hardware/usb/UsbDevice;)Z" );
-	jmethodID MethodclaimInterface = env->GetMethodID( envptr, ClassUsbDeviceConnection, "claimInterface", "(Landroid/hardware/usb/UsbInterface;Z)Z" );
-	jmethodID MethodsetInterface = env->GetMethodID( envptr, ClassUsbDeviceConnection, "setInterface", "(Landroid/hardware/usb/UsbInterface;)Z" );
+//	jmethodID MethodclaimInterface = env->GetMethodID( envptr, ClassUsbDeviceConnection, "claimInterface", "(Landroid/hardware/usb/UsbInterface;Z)Z" );
+//	jmethodID MethodsetInterface = env->GetMethodID( envptr, ClassUsbDeviceConnection, "setInterface", "(Landroid/hardware/usb/UsbInterface;)Z" );
 	jmethodID MethodgetFileDescriptor = env->GetMethodID( envptr, ClassUsbDeviceConnection, "getFileDescriptor", "()I" );
 
 	jobject matchingDevice = 0;
-	jobject matchingInterface = 0;
+//	jobject matchingInterface = 0;
 
 	while( bHasNext )
 	{
@@ -622,8 +639,7 @@ int SoftRNDISConnect()
 	printf( "Found matching configuration\n" );
 #endif
 
-	int ifaceCount = env->CallIntMethod( envptr, matchingDevice, MethodgetInterfaceCount );
-
+//	int ifaceCount = env->CallIntMethod( envptr, matchingDevice, MethodgetInterfaceCount );
 	//jint numConfigurations = env->CallIntMethod( envptr, matchingDevice, MethodgetConfigurationCount );
 	//jmethodID MethodconfigurationgetId = env->GetMethodID( envptr, ClassUsbConfiguration, "getId", "()I" );
 	//jobject matchingConfiguration = 0;
@@ -804,6 +820,7 @@ int SoftRNDISTick( int timeout )
 		SoftRNDISCheckMedia();
 		dTimeOfLastMediaCheck = dNow;
 	}
+	return 0;
 }
 
 int SoftRNDISSend( void * handle, uint8_t * buffer, int packetlen )
