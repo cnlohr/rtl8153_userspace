@@ -176,7 +176,7 @@ void * HardwareThread( void * v )
 		eth_rx_bytes+=rs;
 		eth_rx_cnt++;
 
-		if( rs > 12 )
+		if( rs >= 16 )
 		{
 			//int same_addr = 
 			//	memcmp( mymac, hwbuffer, 6 ) == 0
