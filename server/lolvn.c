@@ -22,6 +22,10 @@ const char * ifname;
 // Based on https://stackoverflow.com/a/41724877/2926815;
 struct sockaddr_ll socket_address;
 
+#define MACTABLESIZE 128
+uint8_t mactable[MACTABLESIZE][6];
+int mactableinsert = 0;
+
 void intHandler(int dummy) {
 	terminate = 1;
 }
@@ -33,6 +37,20 @@ int internal_pass_frame_to_ethernet( uint8_t * frame, int len )
 		frame[0], frame[1], frame[2], frame[3], frame[4], frame[5],
 		frame[6], frame[7], frame[8], frame[9], frame[10], frame[11]  );
 #endif
+
+	if( !(frame[0] & 1) )
+	{
+		int i;
+		for( i = 0; i < MACTABLESIZE; i++ )
+			if( memcmp( frame, mactable[i], 6 ) == 0 )
+				break;
+		if( i == MACTABLESIZE )
+		{
+			memcpy( mactable[mactableinsert], frame+6, 6 );
+			mactableinsert = (mactableinsert+1)&MACTABLESIZE;
+		}
+	}
+
 	if( connected_raw )
 		return send( rawsock, frame, len, MSG_NOSIGNAL );
 	else
@@ -122,18 +140,33 @@ void * HardwareThread( void * v )
 
 		if( rs > 12 )
 		{
-			int same_addr = 
-				memcmp( mymac, hwbuffer, 6 ) == 0
-				||
-				memcmp( mymac, hwbuffer+6, 6 ) == 0
-			;
+			//int same_addr = 
+			//	memcmp( mymac, hwbuffer, 6 ) == 0
+			//	||
+			//	memcmp( mymac, hwbuffer+6, 6 ) == 0
+			//;
+
+
+			int allow = 0;
+			if( hwbuffer[0] & 1 ) allow = 1;
+			else
+			{
+				int i;
+				for( i = 0; i < MACTABLESIZE; i++ )
+					if( memcmp( hwbuffer, mactable[i], 6 ) == 0 )
+					{
+						allow = 1;
+						break;
+					}
+			}
+
 #if 0
 			printf( "_XP: %d %02x %02x %02x %02x %02x %02x FROM %02x %02x %02x %02x %02x %02x %d\n", rs,
 				hwbuffer[0], hwbuffer[1], hwbuffer[2], hwbuffer[3], hwbuffer[4], hwbuffer[5],
 				hwbuffer[6], hwbuffer[7], hwbuffer[8], hwbuffer[9], hwbuffer[10], hwbuffer[11],
 				same_addr );
 #endif
-			if( !same_addr )
+			if( allow )
 				ConnectionSendPacket( hwbuffer, rs );
 		}
 	}
