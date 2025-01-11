@@ -98,7 +98,7 @@ void PrintStatus( void )
 
 	printf( "RLOS%10ld ROOO%10ld RDUP%10ld LOSS%3ld%%\n",
 		conn_cnt_rxloss, conn_cnt_rxooo, conn_cnt_rxdup,
-		(100*conn_cnt_rxloss)/(conn_cnt_rx+conn_cnt_rxloss) );
+		(100*conn_cnt_rxloss)/(conn_cnt_rx+conn_cnt_rxloss+1) );
 
 
 	printf( "MTI:%10ld\n", mactableinsert);
