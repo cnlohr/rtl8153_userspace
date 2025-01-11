@@ -75,7 +75,7 @@ void PrintStatus( void )
 	printf( "TXF:%10ld RXF:%10ld DECF%10ld\n", conn_cnt_txfail, conn_cnt_rxfail, conn_cnt_decfail );
 	printf( "JMTC%10ld JMTF%10ld JMRC%10ld JMRF%10ld\n",
 		conn_cnt_jumbs_tx, conn_cnt_jumbs_tx_fail, conn_cnt_jumbs_rx, conn_cnt_jumbs_rx_fail );
-
+	printf( "MTI:%10ld\n", mactableinsert);
 
 }
 
