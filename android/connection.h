@@ -24,6 +24,8 @@ int host_connected = 0;
 int global_counter = 0;
 uint32_t nonce[3];
 
+int is_server = 0;
+
 struct sockaddr_in server;
 
 #define HEADER_SIZE 24
@@ -46,7 +48,7 @@ struct packetStructureMinPL
 	uint32_t payload[0];
 } __attribute__((packed));
 
-static og_thread_t InitializeConnectionAndThread(void);
+static og_thread_t InitializeConnectionAndThread( const char * configfile );
 static int ConnectionSendPacket( uint8_t * packet, int packetlen );
 static void * ConnectionThread( void * c );
 
@@ -67,6 +69,9 @@ static og_thread_t InitializeConnectionAndThread( const char * configfile )
 
 	if( hostname[strlen(hostname)-1] == '\n' )
 		hostname[strlen(hostname)-1] = 0;
+
+	if( hostname[0] == '-' && hostname[1] == 0 )
+		is_server = 1;
 
 	char tmpport[16];
 	if( !fgets( tmpport, sizeof( tmpport )-1, f ) )
@@ -139,33 +144,68 @@ static void * ConnectionThread( void * c )
 		{
 			usleep( 100000 );
 			if( host_socket ) close( host_socket );
-			struct hostent * hostnm = gethostbyname( hostname );
-			if( !hostnm )
+
+			if( is_server )
 			{
-				snprintf( host_status, sizeof(host_status)-1, "Cannot find host(%s)", hostname );
-				continue;
+				// Server Mode
+				server = (struct sockaddr_in){
+					.sin_family      = AF_INET,
+					.sin_port        = portnum_net_order,
+					.sin_addr.s_addr = htonl( INADDR_ANY ),
+				};
+
+				host_socket = 0;
+				host_connected = 0;
+
+				host_socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+				if( !host_socket )
+				{
+					sprintf( host_status, "Could not create socket" );
+					continue;
+				}
+
+				setsockopt(host_socket, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
+
+				if (bind(host_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
+				{
+					sprintf( host_status, "Could not listen" );
+					continue;
+				}
 			}
-
-			server = (struct sockaddr_in){
-				.sin_family      = AF_INET,
-				.sin_port        = portnum_net_order,
-				.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr),
-			};
-
-			host_socket = 0;
-			host_connected = 0;
-
-			host_socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
-			if( !host_socket )
+			else
 			{
-				sprintf( host_status, "Could not create socket" );
-				continue;
-			}
+				struct hostent * hostnm = gethostbyname( hostname );
+				if( !hostnm )
+				{
+					snprintf( host_status, sizeof(host_status)-1, "Cannot find host(%s)", hostname );
+					continue;
+				}
 
-			if (connect(host_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
-			{
-				sprintf( host_status, "Could not connect" );
-				continue;
+				server = (struct sockaddr_in){
+					.sin_family      = AF_INET,
+					.sin_port        = portnum_net_order,
+					.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr),
+				};
+
+				host_socket = 0;
+				host_connected = 0;
+
+				host_socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+				if( !host_socket )
+				{
+					sprintf( host_status, "Could not create socket" );
+					continue;
+				}
+
+				struct timeval tv = { .tv_sec = 120 };
+
+				setsockopt(host_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+				if (connect(host_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
+				{
+					sprintf( host_status, "Could not connect" );
+					continue;
+				}
 			}
 		}
 
