@@ -67,6 +67,16 @@ void PrintStatus( void )
 	timeinfo = localtime ( &rawtime );
 
 	printf( "%s: %s: %s\n", asctime (timeinfo), local_status, host_status );*/
+
+	printf( "STATUS: %s\n", local_status );
+	printf( "HOST: %s\n", host_status );
+	printf( "TXC:%10ld TXB:%10ld RXC:%10ld RXB:%10ld\n",
+		conn_cnt_tx, conn_cnt_txb, conn_cnt_rxm, conn_cnt_rxb );
+	printf( "TXF:%10ld RXF:%10ld DECF%10ld\n", conn_cnt_txfail, conn_cnt_rxfail, conn_cnt_decfail );
+	printf( "JMTC%10ld JMTF%10ld JMRC%10ld JMRF%10ld\n",
+		conn_cnt_jumbs_tx, conn_cnt_jumbs_tx_fail, conn_cnt_jumbs_rx, conn_cnt_jumbs_rx_fail );
+
+
 }
 
 int ifindex_find(const char name[IFNAMSIZ], int sockfd)
@@ -196,7 +206,7 @@ int main( int argc, char ** argv )
 	{
 		PrintStatus();
 		int i;
-		for( i = 0; i < 600; i++ )
+		for( i = 0; i < 1; i++ )
 		{
 			sleep(1);
 			if( terminate ) break;
