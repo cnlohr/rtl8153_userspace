@@ -110,7 +110,7 @@ void * HardwareThread( void * v )
 
 			connected_raw = 1;
 		}
-		usleep(10000);
+		//usleep(10000);
 
 		static uint8_t hwbuffer[10000] __attribute__((aligned(64)));
 		int rs = recv( rawsock, hwbuffer, sizeof( hwbuffer ), 0 );

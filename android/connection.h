@@ -300,6 +300,7 @@ static void * ConnectionThread( void * c )
 				}
 				else
 				{
+					printf( "CONST: %d (%d,%d) %d\n", recvbuffer.construct, recvbuffer.counter, constructed_last_cnt+1, plen);
 					// Otherwise we are dealing with a constructed frame.
 					if( recvbuffer.construct == 2 )
 					{
@@ -321,6 +322,7 @@ static void * ConnectionThread( void * c )
 					{
 						constructed_invalid = 1;
 					}
+					constructed_last_cnt = recvbuffer.counter;
 
 					if( recvbuffer.construct == 1 )
 					{
