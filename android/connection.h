@@ -23,7 +23,7 @@ int host_socket = 0;
 int host_connected = 0;
 int global_counter = 0;
 uint32_t nonce[3];
-
+struct sockaddr_in lastpeer;
 int is_server = 0;
 
 struct sockaddr_in server;
@@ -132,8 +132,10 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 	}
 
 	int tlen = packetlen + HEADER_SIZE;
-	int s = send( host_socket, dtos, tlen, MSG_NOSIGNAL );
-	return s;
+	if( is_server && lastpeer.sin_port )
+		return sendto( host_socket, dtos, tlen, MSG_NOSIGNAL, (struct sockaddr*)&lastpeer, sizeof(lastpeer) );
+	else
+		return send( host_socket, dtos, tlen, MSG_NOSIGNAL );
 }
 
 static void * ConnectionThread( void * c )
@@ -213,7 +215,10 @@ static void * ConnectionThread( void * c )
 		sprintf( host_status, "Established" );
 
 		struct packetStructureMaxPL recvbuffer __attribute__((aligned(64)));
-		int r = recv( host_socket, &recvbuffer, sizeof( recvbuffer ), MSG_NOSIGNAL );
+		socklen_t sz = sizeof( lastpeer );
+		int r = recvfrom( host_socket, &recvbuffer, sizeof( recvbuffer ), MSG_NOSIGNAL,
+			(struct sockaddr *)&lastpeer, &sz );
+
 		if( r < 0 )
 		{
 			host_connected = 0;
