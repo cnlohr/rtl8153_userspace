@@ -136,6 +136,7 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 	}
 
 	int tlen = packetlen + HEADER_SIZE;
+	printf( "%d/%d\n", ((packetlen+63)+HEADER_SIZE), tlen );
 	if( is_server && lastpeer.sin_port )
 		return sendto( host_socket, dtos, tlen, MSG_NOSIGNAL, (struct sockaddr*)&lastpeer, sizeof(lastpeer) );
 	else
