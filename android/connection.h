@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <linux/in.h>
+#include <netinet/in.h>
 #include <netdb.h>
 
 
