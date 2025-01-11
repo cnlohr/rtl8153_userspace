@@ -13,7 +13,7 @@
 
 extern volatile int terminate;
 
-char hostname[1024];
+char hostname[960];
 int portnum_net_order;
 uint32_t sharedkey[8];
 
@@ -212,7 +212,7 @@ static void * ConnectionThread( void * c )
 		host_connected = 1;
 		sprintf( host_status, "Established" );
 
-		struct packetStructureMaxPL recvbuffer;
+		struct packetStructureMaxPL recvbuffer __attribute__((aligned(64)));
 		int r = recv( host_socket, &recvbuffer, sizeof( recvbuffer ), MSG_NOSIGNAL );
 		if( r < 0 )
 		{
