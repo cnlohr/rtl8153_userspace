@@ -11,7 +11,8 @@
 #include "crc32.h"
 #include "chacha20.h"
 
-#define FORCE_MTU_SPLIT 1300
+#define FORCE_MTU_SPLIT 1200
+#define MAX_FORCE_MTU_SPLIT 12000
 
 extern volatile int terminate;
 
@@ -40,7 +41,7 @@ struct packetStructureMaxPL
 	uint16_t len;
 	uint8_t  construct;
 	uint8_t  reserved;
-	uint32_t payload[FORCE_MTU_SPLIT/4+15];
+	uint32_t payload[MAX_FORCE_MTU_SPLIT/4+15];
 } __attribute__((packed));
 
 struct packetStructureMinPL
