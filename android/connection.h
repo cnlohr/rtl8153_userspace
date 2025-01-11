@@ -235,7 +235,6 @@ static void * ConnectionThread( void * c )
 		}
 
 		int plen = recvbuffer.len;
-		printf( "PL: %d/%d\n", plen, r-HEADER_SIZE );
 		if( plen <= r - HEADER_SIZE )
 		{
 			uint32_t chachastate[16];
