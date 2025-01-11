@@ -11,7 +11,7 @@
 #include "crc32.h"
 #include "chacha20.h"
 
-#define FORCE_MTU_SPLIT 1400
+#define FORCE_MTU_SPLIT 1200
 #define MAX_FORCE_MTU_SPLIT 12000
 
 extern volatile int terminate;
@@ -150,7 +150,7 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 		int packs = (packetlen-1) / FORCE_MTU_SPLIT + 1;
 		for( i = 0; i < packs; i++ )
 		{
-			int last = i == packs-1;
+			int last = i == (packs-1);
 			int remain = packetlen - i * FORCE_MTU_SPLIT;
 			if( remain > FORCE_MTU_SPLIT ) remain = FORCE_MTU_SPLIT;
 			int r = InternalSendPacket( packet + i * FORCE_MTU_SPLIT, remain, last ? 1 : (i+2) );
@@ -159,6 +159,7 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 				conn_cnt_jumbs_tx_fail++;
 				return r;
 			}
+			conn_cnt_tx++;
 		}
 		conn_cnt_jumbs_tx++;
 	}
