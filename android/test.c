@@ -211,7 +211,7 @@ int main( int argc, char ** argv )
 
 	CNFGBGColor = 0x000040ff;
 
-	og_thread_t * connectionThread = InitializeConnectionAndThread();
+	og_thread_t * connectionThread = InitializeConnectionAndThread( "/sdcard/lolvn.txt" );
 
 	while(!terminate && CNFGHandleInput())
 	{

@@ -51,9 +51,9 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen );
 static void * ConnectionThread( void * c );
 
 
-static og_thread_t InitializeConnectionAndThread(void)
+static og_thread_t InitializeConnectionAndThread( const char * configfile )
 {
-	FILE * f = fopen( "/sdcard/lolvn.txt", "rb" );
+	FILE * f = fopen( configfile, "rb" );
 	if( !f )
 	{
 		sprintf( host_status, "Error: cannot open /sdcard/lolvn" );
