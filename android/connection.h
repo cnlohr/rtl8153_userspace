@@ -431,7 +431,7 @@ static void * ConnectionThread( void * c )
 			{
 
 				int cntdiff = recvbuffer.counter - last_cnt;
-				printf( "CNT: %d %d\n", recvbuffer.counter, cntdiff ); 
+				//printf( "CNT: %d %d\n", recvbuffer.counter, cntdiff ); 
 
 				if( cntdiff > 1 )
 				{
