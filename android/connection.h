@@ -320,31 +320,46 @@ static void * ConnectionThread( void * c )
 
 		struct packetStructureMaxPL recvbuffer __attribute__((aligned(64)));
 #ifdef TCP_MODE
-		uint8_t * bptr = (uint8_t *)&recvbuffer;
-		int bptrofs = 0;
-		int headersize = HEADER_SIZE;
+		static int rmode = 0;
+		static uint8_t * bptr = 0;
+		static int bptrofs = 0;
+		static int headersize = HEADER_SIZE;
 		int r;
-		do
+		if( rmode == 0 )
 		{
-			r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
-			printf( "R: %d %d %d %d\n", r, host_socket, bptrofs, headersize );
-			if( r <= 0 ) break;
-		} while( bptrofs < headersize );
-
-		if( r >= 0 )
-		{
-			bptr += headersize;
-			bptrofs = 0;
-			int size = recvbuffer.len;
-			printf( "Looking for %d\n", size );
+			if( bptr == 0 ) bptr = (uint8_t *)&recvbuffer;
 			do
 			{
-				r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
-				printf( "RA: %d %d %d %d\n", r, host_socket, bptrofs, size );
+				r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
+				printf( "R: %d %d %d %d\n", r, host_socket, bptrofs, headersize );
 				if( r <= 0 ) break;
-			} while( bptrofs < size );
+			} while( bptrofs < headersize );
+			if( bptrofs >= headersize )
+			{
+				rmode = 1;
+			}
 		}
-		if( r <= 0 ) r = -1000;
+
+		if( rmode == 1 )
+		{
+			if( r >= 0 )
+			{
+				bptr += headersize;
+				bptrofs = 0;
+				int size = recvbuffer.len;
+				printf( "Looking for %d\n", size );
+				do
+				{
+					r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
+					printf( "RA: %d %d %d %d\n", r, host_socket, bptrofs, size );
+					if( r <= 0 ) break;
+				} while( bptrofs < size );
+
+				// Go into loop next time around
+				if( r )
+					rmode = 0;
+			}
+		}
 #else
 		socklen_t sz = sizeof( lastpeer );
 
