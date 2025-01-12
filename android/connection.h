@@ -11,6 +11,8 @@
 #include "crc32.h"
 #include "chacha20.h"
 
+#define TCP_MODE
+
 #define FORCE_MTU_SPLIT 1200
 #define MAX_FORCE_MTU_SPLIT 12000
 
@@ -194,10 +196,14 @@ static int InternalSendPacket( uint8_t * packet, int packetlen, int construct )
 
 	int tlen = packetlen + HEADER_SIZE;
 	//printf( "%d/%d\n", ((packetlen+63)+HEADER_SIZE), tlen );
+#ifdef TCP_MODE
+	return send( host_socket, dtos, tlen, MSG_NOSIGNAL );
+#else
 	if( is_server && lastpeer.sin_port )
 		return sendto( host_socket, dtos, tlen, MSG_NOSIGNAL, (struct sockaddr*)&lastpeer, sizeof(lastpeer) );
 	else
 		return send( host_socket, dtos, tlen, MSG_NOSIGNAL );
+#endif
 }
 
 static void * ConnectionThread( void * c )
@@ -209,6 +215,19 @@ static void * ConnectionThread( void * c )
 		{
 			usleep( 100000 );
 			if( host_socket ) close( host_socket );
+			host_socket = 0;
+			host_connected = 0;
+
+#ifdef TCP_MODE
+			host_socket = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
+#else
+			host_socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+#endif
+			if( !host_socket )
+			{
+				sprintf( host_status, "Could not create socket" );
+				continue;
+			}
 
 			if( is_server )
 			{
@@ -219,28 +238,42 @@ static void * ConnectionThread( void * c )
 					.sin_addr.s_addr = htonl( INADDR_ANY ),
 				};
 
-				host_socket = 0;
-				host_connected = 0;
-
-				host_socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
-				if( !host_socket )
+				if (bind(host_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
 				{
-					sprintf( host_status, "Could not create socket" );
+					fprintf( stderr, "Error: Could not listen (bind)\n" );
+					sprintf( host_status, "Could not listen (bind)" );
+					close( host_socket );
 					continue;
 				}
+
+#ifdef TCP_MODE
+				if ( listen(host_socket, 1 ) < 0 )
+				{
+					fprintf( stderr, "Error: Could not listen (listen)\n" );
+					sprintf( host_status, "Could not listen (listen)" );
+					close( host_socket );
+					continue;
+				}
+
+				struct sockaddr addr;
+				socklen_t addrlen = sizeof(addr);
+				int hsbu = host_socket;
+				host_socket = accept( host_socket, &addr, &addrlen);
+				if( host_socket < -1 )
+				{
+					fprintf( stderr, "Error: Could not accept\n" );
+					sprintf( host_status, "Could not accept" );
+					close( hsbu );
+					continue;
+				}
+#endif
+
+				struct timeval tv = { .tv_sec = 120 };
+
+				setsockopt(host_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
 				setsockopt(host_socket, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
 
-				if (bind(host_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
-				{
-					sprintf( host_status, "Could not listen" );
-					continue;
-				}
-
-				setsockopt(host_socket, SOL_SOCKET, SO_SNDBUFFORCE, &(int){1}, sizeof(int));
-				setsockopt(host_socket, SOL_SOCKET, SO_RCVBUFFORCE, &(int){1}, sizeof(int));
-				setsockopt(host_socket, SOL_SOCKET, SO_SNDBUF, &(int){1024*1024*10}, sizeof(int));
-				setsockopt(host_socket, SOL_SOCKET, SO_RCVBUF, &(int){1024*1024*10}, sizeof(int));
 
 				printf( "Server Connected\n" );
 			}
@@ -250,6 +283,7 @@ static void * ConnectionThread( void * c )
 				if( !hostnm )
 				{
 					snprintf( host_status, sizeof(host_status)-1, "Cannot find host(%s)", hostname );
+					close( host_socket );
 					continue;
 				}
 
@@ -259,16 +293,6 @@ static void * ConnectionThread( void * c )
 					.sin_addr.s_addr = *((unsigned long *)hostnm->h_addr),
 				};
 
-				host_socket = 0;
-				host_connected = 0;
-
-				host_socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
-				if( !host_socket )
-				{
-					sprintf( host_status, "Could not create socket" );
-					continue;
-				}
-
 				struct timeval tv = { .tv_sec = 120 };
 
 				setsockopt(host_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -276,21 +300,52 @@ static void * ConnectionThread( void * c )
 				if (connect(host_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
 				{
 					sprintf( host_status, "Could not connect" );
+					close( host_socket );
 					continue;
 				}
 
 				printf( "Client Connected\n" );
 			}
+
+			setsockopt(host_socket, SOL_SOCKET, SO_SNDBUFFORCE, &(int){1}, sizeof(int));
+			setsockopt(host_socket, SOL_SOCKET, SO_RCVBUFFORCE, &(int){1}, sizeof(int));
+			setsockopt(host_socket, SOL_SOCKET, SO_SNDBUF, &(int){1024*1024*10}, sizeof(int));
+			setsockopt(host_socket, SOL_SOCKET, SO_RCVBUF, &(int){1024*1024*10}, sizeof(int));
+
 		}
 
 		host_connected = 1;
 		sprintf( host_status, "Established" );
 
 		struct packetStructureMaxPL recvbuffer __attribute__((aligned(64)));
+#ifdef TCP_MODE
+		uint8_t * bptr = (uint8_t *)&recvbuffer;
+		int bptrofs = 0;
+		int headersize = HEADER_SIZE;
+		int r;
+		do
+		{
+			r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
+			if( r < 0 ) break;
+		} while( bptrofs < headersize );
+
+		if( r >= 0 )
+		{
+			bptr += headersize;
+			bptrofs = 0;
+			int size = recvbuffer.len;
+			do
+			{
+				r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
+				if( r < 0 ) break;
+			} while( bptrofs < size );
+		}		
+#else
 		socklen_t sz = sizeof( lastpeer );
+
 		int r = recvfrom( host_socket, &recvbuffer, sizeof( recvbuffer ), MSG_NOSIGNAL,
 			(struct sockaddr *)&lastpeer, &sz );
-
+#endif
 		if( r < 0 )
 		{
 			host_connected = 0;
