@@ -335,10 +335,11 @@ static void * ConnectionThread( void * c )
 				if( r <= 0 ) break;
 				bptrofs += r;
 			} while( bptrofs < headersize );
-			if( r )
+			if( r > 0 )
 			{
 				rmode = 1;
 			}
+			if( r < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return;
 		}
 
 		if( rmode == 1 )
@@ -359,8 +360,12 @@ static void * ConnectionThread( void * c )
 				} while( bptrofs < size );
 
 				// Go into loop next time around
-				if( r )
+				if( r > 0 )
+				{
 					rmode = 0;
+					r = bptrofs + headersize;
+				}
+				if( r < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return;
 			}
 		}
 #else
