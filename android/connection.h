@@ -1,6 +1,7 @@
 #ifndef _CONNECTION_H
 #define _CONNECTION_H
 
+#include <errno.h>
 #include <string.h>
 #include <stdint.h>
 #include <sys/types.h>
