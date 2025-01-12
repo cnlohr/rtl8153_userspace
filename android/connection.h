@@ -340,7 +340,7 @@ static void * ConnectionThread( void * c )
 			{
 				rmode = 1;
 			}
-			if( r < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return;
+			if( r < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return 0;
 		}
 
 		if( rmode == 1 )
@@ -366,7 +366,7 @@ static void * ConnectionThread( void * c )
 					rmode = 0;
 					r = bptrofs + headersize;
 				}
-				if( r < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return;
+				if( r < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return 0;
 			}
 		}
 #else
