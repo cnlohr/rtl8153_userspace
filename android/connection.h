@@ -332,7 +332,7 @@ static void * ConnectionThread( void * c )
 			do
 			{
 				r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
-				if( r < 0 ) printf( "STR: %s %d\n", strerror( errno ) , errno );
+				if( r <= 0 ) printf( "STR A: %s %d\n", strerror( errno ) , errno );
 				if( r <= 0 ) break;
 				bptrofs += r;
 			} while( bptrofs < headersize );
@@ -340,6 +340,7 @@ static void * ConnectionThread( void * c )
 			{
 				rmode = 1;
 			}
+
 			if( r <= 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return 0;
 		}
 
@@ -363,7 +364,7 @@ static void * ConnectionThread( void * c )
 				do
 				{
 					r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
-					if( r < 0 ) printf( "STR: %s %d\n", strerror( errno ) , errno );
+					if( r <= 0 ) printf( "STR B: %s %d\n", strerror( errno ) , errno );
 					if( r <= 0 ) break;
 					bptrofs += r;
 				} while( bptrofs < size );
