@@ -331,9 +331,8 @@ static void * ConnectionThread( void * c )
 			if( bptr == 0 ) bptr = (uint8_t *)&recvbuffer;
 			do
 			{
-				printf( "Entering R: %d %d\n", bptrofs, headersize ); 
 				r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
-				printf( "R: %d %d %d %d\n", r, host_socket, bptrofs, headersize );
+				if( r < 0 ) printf( "STR: %s %d\n", strerror( errno ) , errno );
 				if( r <= 0 ) break;
 				bptrofs += r;
 			} while( bptrofs < headersize );
@@ -360,12 +359,9 @@ static void * ConnectionThread( void * c )
 					continue;
 				}
 
-				printf( "Looking for %d\n", size );
 				do
 				{
-					printf( "Going into recv: %d %d\n", bptrofs, size );
 					r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
-					printf( "RA: %d %d %d %d\n", r, host_socket, bptrofs, size );
 					if( r < 0 ) printf( "STR: %s %d\n", strerror( errno ) , errno );
 					if( r <= 0 ) break;
 					bptrofs += r;
@@ -378,7 +374,6 @@ static void * ConnectionThread( void * c )
 					r = bptrofs + headersize;
 					bptrofs = 0;
 					bptr = (uint8_t *)&recvbuffer;
-					printf( "HAS PACKET %d\n", r );
 				}
 				if( r < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) ) return 0;
 			}
