@@ -133,7 +133,7 @@ void * HardwareThread( void * v )
 		{
 			usleep(100000);
 			if( rawsock ) close( rawsock );
-			rawsock = socket( PF_PACKET, SOCK_RAW, 0 ); // or AF_PACKET/IPPROTO_RAW / PF_PACKET/htons(ETH_P_ALL)
+			rawsock = socket( PF_PACKET, SOCK_RAW, htons(ETH_P_ALL) ); // or AF_PACKET/IPPROTO_RAW / PF_PACKET/htons(ETH_P_ALL)
 			fprintf( stderr, "Binding to interface %s\n", ifname );
 			socket_address.sll_ifindex = ifindex_find( ifname, rawsock );
 			socket_address.sll_halen = 0;
