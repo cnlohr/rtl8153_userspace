@@ -438,7 +438,6 @@ static void * ConnectionThread( void * c )
 
 			if( checkcrc == recvbuffer.crc )
 			{
-
 				int cntdiff = recvbuffer.counter - last_cnt;
 				//printf( "CNT: %d %d\n", recvbuffer.counter, cntdiff ); 
 
@@ -451,10 +450,13 @@ static void * ConnectionThread( void * c )
 				else if( cntdiff < 0)
 				{
 					conn_cnt_rxooo++;
+					// If it's a little hiccup, don't pass.
+					if( cntdiff > -30 ) continue;
 				}
 				else if( cntdiff == 0 )
 				{
 					conn_cnt_rxdup++;
+					continue;
 				}
 				last_cnt = recvbuffer.counter;
 
