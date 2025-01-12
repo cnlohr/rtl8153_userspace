@@ -209,6 +209,13 @@ static int InternalSendPacket( uint8_t * packet, int packetlen, int construct )
 
 static void * ConnectionThread( void * c )
 {
+#ifdef TCP_MODE
+		static int rmode = 0;
+		static uint8_t * bptr = 0;
+		static int bptrofs = 0;
+		static int headersize = HEADER_SIZE;
+#endif
+		struct packetStructureMaxPL recvbuffer __attribute__((aligned(64)));
 	uint32_t last_cnt = 0;
 	while( !terminate )
 	{
@@ -314,17 +321,18 @@ static void * ConnectionThread( void * c )
 			setsockopt(host_socket, SOL_SOCKET, SO_SNDBUF, &(int){1024*1024*10}, sizeof(int));
 			setsockopt(host_socket, SOL_SOCKET, SO_RCVBUF, &(int){1024*1024*10}, sizeof(int));
 
+#ifdef TCP_MODE
+					rmode = 0;
+					bptrofs = 0;
+					bptr = (uint8_t *)&recvbuffer;
+
+#endif
 		}
 
 		host_connected = 1;
 		sprintf( host_status, "Established" );
 
-		struct packetStructureMaxPL recvbuffer __attribute__((aligned(64)));
 #ifdef TCP_MODE
-		static int rmode = 0;
-		static uint8_t * bptr = 0;
-		static int bptrofs = 0;
-		static int headersize = HEADER_SIZE;
 		int r = 0;
 		if( rmode == 0 )
 		{
