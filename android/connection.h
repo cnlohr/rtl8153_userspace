@@ -327,7 +327,7 @@ static void * ConnectionThread( void * c )
 		{
 			r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
 			printf( "R: %d %d %d %d\n", r, host_socket, bptrofs, headersize );
-			if( r < 0 ) break;
+			if( r <= 0 ) break;
 		} while( bptrofs < headersize );
 
 		if( r >= 0 )
@@ -340,16 +340,17 @@ static void * ConnectionThread( void * c )
 			{
 				r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
 				printf( "RA: %d %d %d %d\n", r, host_socket, bptrofs, size );
-				if( r < 0 ) break;
+				if( r <= 0 ) break;
 			} while( bptrofs < size );
-		}		
+		}
+		if( r <= 0 ) r = -1000;
 #else
 		socklen_t sz = sizeof( lastpeer );
 
 		int r = recvfrom( host_socket, &recvbuffer, sizeof( recvbuffer ), MSG_NOSIGNAL,
 			(struct sockaddr *)&lastpeer, &sz );
 #endif
-		if( r < 0 )
+		if( r <= 0 )
 		{
 			host_connected = 0;
 			conn_cnt_rxfail++;
