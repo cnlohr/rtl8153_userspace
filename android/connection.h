@@ -332,7 +332,7 @@ static void * ConnectionThread( void * c )
 			do
 			{
 				r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
-				if( r <= 0 ) printf( "STR A: %s %d sock:%d (%d %d)\n", strerror( errno ), host_socket , errno, bptrofs, headersize );
+				if( r <= 0 ) printf( "STR A: %s %d sock:%d (%d %d)\n", strerror( errno ), errno, host_socket , errno, bptrofs, headersize );
 				if( r <= 0 ) break;
 				bptrofs += r;
 			} while( bptrofs < headersize );
