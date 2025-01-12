@@ -616,9 +616,9 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 	static uint8_t packetbuffer[12000];
 	static int lastptr = 0;
 
+#define DGISIZE 8192
 	errno = 0;
-	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, 1024, 1 );
-
+	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 1 );
 	if( r >= 0 )
 	{
 		int declenn;
@@ -658,7 +658,7 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 			//printf( "Processed / remove: %d %d\n", lastptr, to_remove );
 			lastptr -= to_remove;
 		} while( 1 );
-		if( lastptr > sizeof( packetbuffer ) - 1024 || declenn > sizeof( packetbuffer ) - 1024 )
+		if( lastptr > sizeof( packetbuffer ) - DGISIZE || declenn > sizeof( packetbuffer ) - DGISIZE )
 		{
 			lastptr = 0;
 		}
