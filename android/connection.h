@@ -273,6 +273,7 @@ static void * ConnectionThread( void * c )
 				setsockopt(host_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
 				setsockopt(host_socket, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
+				setsockopt(host_socket, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int));
 
 
 				printf( "Server Connected\n" );
