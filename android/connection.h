@@ -265,6 +265,9 @@ static void * ConnectionThread( void * c )
 
 				struct sockaddr addr;
 				socklen_t addrlen = sizeof(addr);
+				setsockopt(host_socket, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
+				setsockopt(host_socket, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int));
+
 				int hsbu = host_socket;
 				host_socket = accept( host_socket, &addr, &addrlen);
 				close( hsbu );
