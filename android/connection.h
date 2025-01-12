@@ -215,6 +215,7 @@ static void * ConnectionThread( void * c )
 		static int bptrofs = 0;
 		static int headersize = HEADER_SIZE;
 #endif
+		static int notfirstloss;
 		struct packetStructureMaxPL recvbuffer __attribute__((aligned(64)));
 	uint32_t last_cnt = 0;
 	while( !terminate )
@@ -435,7 +436,8 @@ static void * ConnectionThread( void * c )
 				if( cntdiff > 1 )
 				{
 					if( cntdiff > 1000 ) cntdiff = 1000;
-					conn_cnt_rxloss += cntdiff;
+					if( notfirstloss ) conn_cnt_rxloss += cntdiff;
+					notfirstloss = 1;
 				}
 				else if( cntdiff < 0)
 				{

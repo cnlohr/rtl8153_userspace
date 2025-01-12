@@ -65,7 +65,20 @@ int internal_pass_frame_to_ethernet( uint8_t * frame, int len )
 
 	if( connected_raw )
 	{
+#if 1
 		int r = send( rawsock, frame, len, MSG_NOSIGNAL );
+#else
+		struct msghdr msg = { 0 };
+		struct iovec iov[1] = { 0 };
+		msg.msg_flags = 0;
+		msg.msg_name = 0;
+		msg.msg_namelen = 0;
+		iov[0].iov_base = frame;
+		iov[0].iov_len = len;
+		msg.msg_iov = iov;
+		msg.msg_iovlen = 1;
+		int r = sendmsg( rawsock, &msg, 0 );
+#endif
 		if( r <= 0 )
 			eth_tx_fail++;
 		else
@@ -155,15 +168,14 @@ void * HardwareThread( void * v )
 			//ioctl(rawsock, SIOCSIFFLAGS, &ifr);
 
 
-// https://stackoverflow.com/questions/10070008/reading-from-pf-packet-sock-raw-with-read-misses-packets MAYBE?
-memset(&mr, 0, sizeof(mr));
-mr.mr_ifindex = sll.sll_ifindex;
-mr.mr_type = PACKET_MR_PROMISC;
-
-if (setsockopt(rawsock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr, sizeof(mr)) < 0) {
-    perror("setsockop(PACKET_MR_PROMISC) failed");
-    return 1;
-}
+			// https://stackoverflow.com/questions/10070008/reading-from-pf-packet-sock-raw-with-read-misses-packets MAYBE?
+			struct packet_mreq mr = { 0 };
+			memset(&mr, 0, sizeof(mr));
+			mr.mr_ifindex = socket_address.sll_ifindex;
+			mr.mr_type = PACKET_MR_PROMISC;
+			if (setsockopt(rawsock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr, sizeof(mr)) < 0) {
+				fprintf( stderr, "Error setting packet membership\n" );
+			}
 
 
 			memset(&ifr, 0, sizeof(struct ifreq));
@@ -200,34 +212,7 @@ if (setsockopt(rawsock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr, sizeof(mr)) < 0)
 		iov[0].iov_len = sizeof( hwbuffer ) - 1;
 		msg.msg_iov = iov;
 		msg.msg_iovlen = 1;
-#if 0
-struct msghdr
-  {
-    void *msg_name;		/* Address to send to/receive from.  */
-    socklen_t msg_namelen;	/* Length of address data.  */
 
-    struct iovec *msg_iov;	/* Vector of data to send/receive into.  */
-    size_t msg_iovlen;		/* Number of elements in the vector.  */
-
-    void *msg_control;		/* Ancillary data (eg BSD filedesc passing). */
-    size_t msg_controllen;	/* Ancillary data buffer length.
-				   !! The type should be socklen_t but the
-				   definition of the kernel is incompatible
-				   with this.  */
-
-    int msg_flags;		/* Flags on received message.  */
-  };
-
-		h.msg_name = hwbuffer;
-		h.msg_namelen = 
-
-
-           struct mmsghdr {
-               struct msghdr msg_hdr;  /* Message header */
-               unsigned int  msg_len;  /* Number of received bytes for header */
-           };
-#endif
-//		int rs = read( rawsock, hwbuffer, sizeof( hwbuffer ) );
 		int rs = recvmsg( rawsock, &msg, 0 );
 
 		if( rs < 0 )
