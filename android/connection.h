@@ -326,6 +326,7 @@ static void * ConnectionThread( void * c )
 		do
 		{
 			r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
+			printf( "R: %d %d %d %d\n", r, host_socket, bptrofs, headersize );
 			if( r < 0 ) break;
 		} while( bptrofs < headersize );
 
@@ -334,9 +335,11 @@ static void * ConnectionThread( void * c )
 			bptr += headersize;
 			bptrofs = 0;
 			int size = recvbuffer.len;
+			printf( "Looking for %d\n", size );
 			do
 			{
 				r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
+				printf( "RA: %d %d %d %d\n", r, host_socket, bptrofs, size );
 				if( r < 0 ) break;
 			} while( bptrofs < size );
 		}		
