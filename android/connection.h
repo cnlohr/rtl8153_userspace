@@ -12,7 +12,7 @@
 #include "crc32.h"
 #include "chacha20.h"
 
-#define TCP_MODE
+//#define TCP_MODE
 
 #define FORCE_MTU_SPLIT 1200
 #define MAX_FORCE_MTU_SPLIT 12000
