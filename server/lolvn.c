@@ -149,8 +149,22 @@ void * HardwareThread( void * v )
 			}
 			struct ifreq ifr;
 			memset(&ifr, 0, sizeof(struct ifreq));
+
+			// BAD
 			//ifr.ifr_flags |= IFF_PROMISC;
 			//ioctl(rawsock, SIOCSIFFLAGS, &ifr);
+
+
+// https://stackoverflow.com/questions/10070008/reading-from-pf-packet-sock-raw-with-read-misses-packets MAYBE?
+memset(&mr, 0, sizeof(mr));
+mr.mr_ifindex = sll.sll_ifindex;
+mr.mr_type = PACKET_MR_PROMISC;
+
+if (setsockopt(rawsock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr, sizeof(mr)) < 0) {
+    perror("setsockop(PACKET_MR_PROMISC) failed");
+    return 1;
+}
+
 
 			memset(&ifr, 0, sizeof(struct ifreq));
 			strncpy(ifr.ifr_name, ifname, IFNAMSIZ-1);
@@ -176,7 +190,46 @@ void * HardwareThread( void * v )
 		//usleep(10000);
 
 		static uint8_t hwbuffer[10000] __attribute__((aligned(64)));
-		int rs = recv( rawsock, hwbuffer, sizeof( hwbuffer ), 0 );
+
+		struct msghdr msg = { 0 };
+		struct iovec iov[1] = { 0 };
+		msg.msg_flags = 0;
+		msg.msg_name = 0;
+		msg.msg_namelen = 0;
+		iov[0].iov_base = &hwbuffer;
+		iov[0].iov_len = sizeof( hwbuffer ) - 1;
+		msg.msg_iov = iov;
+		msg.msg_iovlen = 1;
+#if 0
+struct msghdr
+  {
+    void *msg_name;		/* Address to send to/receive from.  */
+    socklen_t msg_namelen;	/* Length of address data.  */
+
+    struct iovec *msg_iov;	/* Vector of data to send/receive into.  */
+    size_t msg_iovlen;		/* Number of elements in the vector.  */
+
+    void *msg_control;		/* Ancillary data (eg BSD filedesc passing). */
+    size_t msg_controllen;	/* Ancillary data buffer length.
+				   !! The type should be socklen_t but the
+				   definition of the kernel is incompatible
+				   with this.  */
+
+    int msg_flags;		/* Flags on received message.  */
+  };
+
+		h.msg_name = hwbuffer;
+		h.msg_namelen = 
+
+
+           struct mmsghdr {
+               struct msghdr msg_hdr;  /* Message header */
+               unsigned int  msg_len;  /* Number of received bytes for header */
+           };
+#endif
+//		int rs = read( rawsock, hwbuffer, sizeof( hwbuffer ) );
+		int rs = recvmsg( rawsock, &msg, 0 );
+
 		if( rs < 0 )
 		{
 			eth_rx_fail++;

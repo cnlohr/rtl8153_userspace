@@ -1139,10 +1139,11 @@ struct tx_desc {
 	int ofs;
 	sendpak[0] = packetlen & 0xff;
 	sendpak[1] = packetlen >> 8;
-	for( ofs = 0; ofs < fulllen; ofs += 1024 )
+#define TXBUFSIZE 8192
+	for( ofs = 0; ofs < fulllen; ofs += TXBUFSIZE )
 	{
 		int tosend = fulllen - ofs;
-		if( tosend > 1024 ) tosend = 1024;
+		if( tosend > TXBUFSIZE ) tosend = TXBUFSIZE;
 		//printf( "Sending: %d\n", tosend );
 		retry:;
 		int r = Internal_BulkRequest( handle, 0x02, sendpak + ofs, tosend, 100 );
