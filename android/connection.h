@@ -355,6 +355,7 @@ static void * ConnectionThread( void * c )
 				{
 					host_connected = 0;
 					conn_cnt_rxfail++;
+					printf( "Buffer too big aborting\n" );
 					shutdown( host_socket, SHUT_RDWR );
 					continue;
 				}
