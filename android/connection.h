@@ -387,7 +387,7 @@ static void * ConnectionThread( void * c )
 #endif
 		if( r <= 0 )
 		{
-			printf( "R <= 0\n" );
+			printf( "R %d <= 0\n", r );
 			host_connected = 0;
 			conn_cnt_rxfail++;
 			shutdown( host_socket, SHUT_RDWR );
