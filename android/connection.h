@@ -297,14 +297,14 @@ static void * ConnectionThread( void * c )
 
 				struct timeval tv = { .tv_sec = 120 };
 
-				setsockopt(host_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
 				if (connect(host_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
 				{
 					sprintf( host_status, "Could not connect" );
 					close( host_socket );
 					continue;
 				}
+
+				setsockopt(host_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
 				printf( "Client Connected (%d)\n", host_socket );
 			}
