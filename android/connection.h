@@ -140,13 +140,20 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 {
 	if( !host_connected ) return -1;
 
+	static int failed_in_a_row = 0;
 	if( packetlen <= FORCE_MTU_SPLIT )
 	{
 		int r = InternalSendPacket( packet, packetlen, 0 );
 		if( r < 0 )	
+		{
+			if( failed_in_a_row++ > 40 ) host_connected = false;
 			conn_cnt_txfail++;
+		}
 		else
+		{
+			failed_in_a_row = 0;
 			conn_cnt_tx++;
+		}
 	}
 	else
 	{
@@ -160,9 +167,11 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 			int r = InternalSendPacket( packet + i * FORCE_MTU_SPLIT, remain, last ? 1 : (i+2) );
 			if( r < 0 )
 			{
+				if( failed_in_a_row++ > 40 ) host_connected = false;
 				conn_cnt_jumbs_tx_fail++;
 				return r;
 			}
+			failed_in_a_row = 0;
 			conn_cnt_tx++;
 		}
 		conn_cnt_jumbs_tx++;

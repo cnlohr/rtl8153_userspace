@@ -20,13 +20,20 @@
 #define CNFG_IMPLEMENTATION
 #include "rawdraw_sf.h"
 
-#define CONNECTION_PACKET_SEND( x, y ) SoftRNDISSend( 0, x, y )
+volatile int clockhead = 0;
+#define LOGHIST 4096
+int datatx[LOGHIST];
+int datarx[LOGHIST];
+double histtimes[LOGHIST];
+
+#define CONNECTION_PACKET_SEND( x, y ) { SoftRNDISSend( 0, x, y ); __atomic_fetch_add( &datarx[clockhead], y, __ATOMIC_SEQ_CST ); }
 #include "connection.h"
 
 ALooper * l;
 volatile int terminate;
 unsigned frames = 0;
 unsigned long iframeno = 0;
+
 
 void AndroidDisplayKeyboard(int pShow);
 
@@ -98,10 +105,51 @@ void HandleThisWindowTermination()
 	suspended = 1;
 }
 
+
+void DrawGraph( int sox, int soy, int w, int h, int * history, uint32_t linecolor, const char * title )
+{
+	CNFGColor( 0x303030FF );
+	CNFGTackRectangle( sox, soy, sox + w, soy + h);
+
+	int window = w - 20;
+	int i;
+	int maxtx = 1;
+	int first = 0;
+	for( i = 0; i < window; i++ )
+	{
+		int idx = (clockhead - i + LOGHIST)%LOGHIST;
+		int hist = history[idx];
+		if( i == 0 ) first = hist;
+		if( hist > maxtx ) maxtx = hist;
+	}
+	CNFGColor( linecolor );
+	int idx = (clockhead - 0 + LOGHIST)%LOGHIST;
+	double last = h - first * (h-20) / maxtx - 10;
+	double dNow = OGGetAbsoluteTime();
+	double dBytesOverOneSecond = first;
+	for( i = 1; i < window; i++ )
+	{
+		dBytesOverOneSecond += (dNow - histtimes[idx] < 1 ) ? history[idx] : 0;
+		idx = (idx - 1 + LOGHIST) % LOGHIST;
+		double dy = h - history[idx] * (h-20) / maxtx - 10;
+		CNFGTackSegment( i + 10+sox, last + soy + 10, i + 11+sox, dy+soy+10 );
+		last = dy;
+	}
+
+	CNFGColor( 0xffffffff );
+	CNFGPenX = sox + 4;
+	CNFGPenY = soy + 4;
+	char cts[1024];
+	snprintf( cts, sizeof(cts), "%.3f MBit/s %s\n", dBytesOverOneSecond*8/1000000.0, title );
+	CNFGDrawText( cts, 9 );	
+}
+
+
 char media_status[1024];
 
 void SoftRNDISReceived( void * iface, uint8_t * packet, int packetlen )
 {
+	__atomic_fetch_add( &datatx[clockhead], packetlen, __ATOMIC_SEQ_CST );
 //	printf( "ALen: %d\n", packetlen );
 #if 0
 	int i;
@@ -220,11 +268,15 @@ int main( int argc, char ** argv )
 
 	og_thread_t * connectionThread = InitializeConnectionAndThread( "/sdcard/lolvn.txt" );
 
+	double dTimeSinceAdvance = OGGetAbsoluteTime();
+
 	while(!terminate && CNFGHandleInput())
 	{
 		iframeno++;
 
 		if( suspended ) { usleep(50000); continue; }
+
+		ThisTime = OGGetAbsoluteTime();
 
 		CNFGClearFrame();
 		CNFGColor( 0xFFFFFFFF );
@@ -249,7 +301,7 @@ int main( int argc, char ** argv )
 		CNFGDrawText( st, 9 );
 
 		int sox = 20;
-		int soy = 1000;
+		int soy = 650;
 		if( screenx > screeny )
 		{
 			sox = 1000;
@@ -268,12 +320,40 @@ int main( int argc, char ** argv )
 		DrawPromptNumber( sox+  0, soy+250, 9, "JMTF:", conn_cnt_jumbs_tx_fail );
 		DrawPromptNumber( sox+500, soy+250, 9, "JMRC:", conn_cnt_jumbs_rx );
 		DrawPromptNumber( sox+  0, soy+300, 9, "JMRF:", conn_cnt_jumbs_rx_fail );
-
 		DrawPromptNumber( sox+500, soy+300, 9, "RLOS:", conn_cnt_rxloss );
 		DrawPromptNumber( sox+  0, soy+350, 9, "ROOO:", conn_cnt_rxooo );
 		DrawPromptNumber( sox+500, soy+350, 9, "RDUP:", conn_cnt_rxdup );
 		DrawPromptNumber( sox+  0, soy+400, 9, "LOSS%", (100*conn_cnt_rxloss)/(conn_cnt_rx+conn_cnt_rxloss) );
 		DrawPromptNumber( sox+500, soy+400, 9, "EXTR:", conn_cnt_rxextra );
+
+
+		if( screenx > screeny )
+		{
+			DrawGraph( 10, 650, 1000, 300, datatx, 0x00ff00ff, "TX" );
+		}
+		else
+		{
+			DrawGraph( 20, 1200, 1000, 300, datatx, 0x00ff00ff, "TX" );
+		}
+
+		if( screenx > screeny )
+		{
+			DrawGraph( 1100, 650, 1000, 300, datarx, 0xff00ffff, "RX" );
+		}
+		else
+		{
+			DrawGraph( 20, 1600, 1000, 300, datarx, 0xff00ffff, "RX" );
+		}
+
+		double advanceDelta = ThisTime - dTimeSinceAdvance;
+		if( advanceDelta > 0.1 )
+		{
+			histtimes[clockhead] = ThisTime;
+			clockhead = ( clockhead + 1) % LOGHIST;
+			datatx[clockhead] = 0;
+			datarx[clockhead] = 0;
+			if( advanceDelta > 1 ) { dTimeSinceAdvance = ThisTime; } else { dTimeSinceAdvance += 0.1; }
+		}
 
 		CNFGSetLineWidth( 2 );
 		// Square behind text
@@ -284,7 +364,6 @@ int main( int argc, char ** argv )
 		//On Android, CNFGSwapBuffers must be called, and CNFGUpdateScreenWithBitmap does not have an implied framebuffer swap.
 		CNFGSwapBuffers();
 
-		ThisTime = OGGetAbsoluteTime();
 
 		static double dTimeOfLastSend = 0;
 		if( ThisTime - dTimeOfLastSend > 0.5 )
