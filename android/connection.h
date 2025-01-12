@@ -333,8 +333,9 @@ static void * ConnectionThread( void * c )
 				r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
 				printf( "R: %d %d %d %d\n", r, host_socket, bptrofs, headersize );
 				if( r <= 0 ) break;
+				bptrofs += r;
 			} while( bptrofs < headersize );
-			if( bptrofs >= headersize )
+			if( r )
 			{
 				rmode = 1;
 			}
@@ -353,6 +354,7 @@ static void * ConnectionThread( void * c )
 					r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
 					printf( "RA: %d %d %d %d\n", r, host_socket, bptrofs, size );
 					if( r <= 0 ) break;
+					bptrofs += r;
 				} while( bptrofs < size );
 
 				// Go into loop next time around
