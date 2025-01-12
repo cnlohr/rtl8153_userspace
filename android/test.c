@@ -154,7 +154,7 @@ void * EthernetThread( void * v )
 void DrawPromptNumber( int x, int y, int s, const char * prompt, int64_t n )
 {
 	char st[1024];
-	snprintf( st, 1023, "%s:%ld", prompt, n ); 
+	snprintf( st, 1023, "%s%ld", prompt, n ); 
 	CNFGPenX = x; CNFGPenY = y;
 	CNFGDrawText( st, s );
 }
@@ -273,6 +273,7 @@ int main( int argc, char ** argv )
 		DrawPromptNumber( sox+  0, soy+350, 9, "ROOO:", conn_cnt_rxooo );
 		DrawPromptNumber( sox+500, soy+350, 9, "RDUP:", conn_cnt_rxdup );
 		DrawPromptNumber( sox+  0, soy+400, 9, "LOSS%", (100*conn_cnt_rxloss)/(conn_cnt_rx+conn_cnt_rxloss) );
+		DrawPromptNumber( sox+500, soy+400, 9, "EXTR:", conn_cnt_rxextra );
 
 		CNFGSetLineWidth( 2 );
 		// Square behind text

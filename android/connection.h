@@ -26,6 +26,7 @@ int64_t conn_cnt_txfail;
 int64_t conn_cnt_txb;
 int64_t conn_cnt_rxb;
 int64_t conn_cnt_rxfail;
+int64_t conn_cnt_rxextra;
 int64_t conn_cnt_rxloss;
 int64_t conn_cnt_rxooo;
 int64_t conn_cnt_rxdup;
@@ -301,6 +302,10 @@ static void * ConnectionThread( void * c )
 		int plen = recvbuffer.len;
 		if( plen <= r - HEADER_SIZE )
 		{
+			if( plen < r - HEADER_SIZE )
+			{
+				conn_cnt_rxextra++;
+			}
 			uint32_t chachastate[16];
 
 			chacha_init( chachastate, sharedkey, recvbuffer.counter, recvbuffer.nonce );
@@ -322,6 +327,7 @@ static void * ConnectionThread( void * c )
 			{
 
 				int cntdiff = recvbuffer.counter - last_cnt;
+				printf( "CNT: %d %d\n", recvbuffer.counter, cntdiff ); 
 
 				if( cntdiff > 1 )
 				{
