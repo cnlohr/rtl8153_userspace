@@ -259,11 +259,11 @@ static void * ConnectionThread( void * c )
 				socklen_t addrlen = sizeof(addr);
 				int hsbu = host_socket;
 				host_socket = accept( host_socket, &addr, &addrlen);
+				close( hsbu );
 				if( host_socket < -1 )
 				{
 					fprintf( stderr, "Error: Could not accept\n" );
 					sprintf( host_status, "Could not accept" );
-					close( hsbu );
 					continue;
 				}
 #endif
