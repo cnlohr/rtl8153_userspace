@@ -6,6 +6,13 @@
 #include <linux/if_packet.h>
 #include <linux/if_ether.h>
 
+
+#include <linux/if_tun.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+
 #include "os_generic.h"
 
 int internal_pass_frame_to_ethernet( uint8_t * frame, int len );
@@ -13,6 +20,9 @@ int internal_pass_frame_to_ethernet( uint8_t * frame, int len );
 
 #include "connection.h"
 
+//#define USETAP ifname
+
+int USETAP = 0;
 char local_status[1024];
 volatile int terminate;
 
@@ -54,31 +64,41 @@ int internal_pass_frame_to_ethernet( uint8_t * frame, int len )
 	{
 		int i;
 		for( i = 0; i < MACTABLESIZE; i++ )
-			if( memcmp( frame, mactable[i], 6 ) == 0 )
+			if( memcmp( frame+6, mactable[i], 6 ) == 0 )
 				break;
 		if( i == MACTABLESIZE )
 		{
 			memcpy( mactable[mactableinsert], frame+6, 6 );
-			mactableinsert = (mactableinsert+1)&MACTABLESIZE;
+			mactableinsert = (mactableinsert+1)&(MACTABLESIZE-1);
+			printf( "Adding MAC %02x:%02x:%02x:%02x:%02x:%02x [%d]\n",frame[6], frame[7], frame[8], frame[9], frame[10], frame[11], mactableinsert );
 		}
 	}
 
 	if( connected_raw )
 	{
+		int r;
+		if( USETAP )
+		{
+			r = write( rawsock, frame, len );
+		}
+		else
+		{
 #if 1
-		int r = send( rawsock, frame, len, MSG_NOSIGNAL );
+			r = send( rawsock, frame, len, MSG_NOSIGNAL );
 #else
-		struct msghdr msg = { 0 };
-		struct iovec iov[1] = { 0 };
-		msg.msg_flags = 0;
-		msg.msg_name = 0;
-		msg.msg_namelen = 0;
-		iov[0].iov_base = frame;
-		iov[0].iov_len = len;
-		msg.msg_iov = iov;
-		msg.msg_iovlen = 1;
-		int r = sendmsg( rawsock, &msg, 0 );
+			struct msghdr msg = { 0 };
+			struct iovec iov[1] = { 0 };
+			msg.msg_flags = 0;
+			msg.msg_name = 0;
+			msg.msg_namelen = 0;
+			iov[0].iov_base = frame;
+			iov[0].iov_len = len;
+			msg.msg_iov = iov;
+			msg.msg_iovlen = 1;
+			r = sendmsg( rawsock, &msg, 0 );
 #endif
+		}
+
 		if( r <= 0 )
 			eth_tx_fail++;
 		else
@@ -146,51 +166,77 @@ void * HardwareThread( void * v )
 		{
 			usleep(100000);
 			if( rawsock ) close( rawsock );
-			rawsock = socket( PF_PACKET, SOCK_RAW, htons(ETH_P_ALL) ); // or AF_PACKET/IPPROTO_RAW / PF_PACKET/htons(ETH_P_ALL)
-			fprintf( stderr, "Binding to interface %s\n", ifname );
-			socket_address.sll_ifindex = ifindex_find( ifname, rawsock );
-			socket_address.sll_halen = 0;
-			socket_address.sll_family = AF_PACKET;
-			socket_address.sll_protocol = htons(ETH_P_ALL);
-			socket_address.sll_hatype = 0;
-			//socket_address.sll_pkttype = PACKET_HOST;
-
-			if ( bind( rawsock, (const struct sockaddr*)&socket_address, sizeof( socket_address ) ) < 0 )
+			if( USETAP )
 			{
-				fprintf( stderr, "Cannot bind.\n" );
-				close( rawsock );
+				rawsock = open("/dev/net/tun", O_RDWR);
+				if (rawsock < 0) {
+					fprintf( stderr, "Can't open /dev/net/tun\n" );
+					close( rawsock );
+					continue;
+				}
+
+				struct ifreq ifr;
+				memset(&ifr, 0, sizeof(ifr));
+				strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
+				// IFF_NO_CARRIER in flags keeps the link down on open
+				// TUNSETCARRIER to change the link later
+				ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+				int ret = ioctl(rawsock, TUNSETIFF, &ifr);
+				if (ret < 0) {
+					fprintf( stderr, "Can't TUNSETIFF\n" );
+					close( rawsock );
+					continue;
+				}
 			}
-			struct ifreq ifr;
-			memset(&ifr, 0, sizeof(struct ifreq));
-
-			// BAD
-			//ifr.ifr_flags |= IFF_PROMISC;
-			//ioctl(rawsock, SIOCSIFFLAGS, &ifr);
-
-
-			// https://stackoverflow.com/questions/10070008/reading-from-pf-packet-sock-raw-with-read-misses-packets MAYBE?
-			struct packet_mreq mr = { 0 };
-			memset(&mr, 0, sizeof(mr));
-			mr.mr_ifindex = socket_address.sll_ifindex;
-			mr.mr_type = PACKET_MR_PROMISC;
-			if (setsockopt(rawsock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr, sizeof(mr)) < 0) {
-				fprintf( stderr, "Error setting packet membership\n" );
-			}
-
-
-			memset(&ifr, 0, sizeof(struct ifreq));
-			strncpy(ifr.ifr_name, ifname, IFNAMSIZ-1);
-			if( ioctl( rawsock, SIOCGIFHWADDR, &ifr ) < 0 )
+			else
 			{
-				fprintf( stderr, "Error: Couldn't get self-MAC\n" );
-				close( rawsock );
-				rawsock = 0;
-				continue;
+				rawsock = socket( PF_PACKET, SOCK_RAW, htons(ETH_P_ALL) ); // or AF_PACKET/IPPROTO_RAW / PF_PACKET/htons(ETH_P_ALL)
+				fprintf( stderr, "Binding to interface %s\n", ifname );
+				socket_address.sll_ifindex = ifindex_find( ifname, rawsock );
+				socket_address.sll_halen = 0;
+				socket_address.sll_family = AF_PACKET;
+				socket_address.sll_protocol = htons(ETH_P_ALL);
+				socket_address.sll_hatype = 0;
+				//socket_address.sll_pkttype = PACKET_HOST;
+
+				if ( bind( rawsock, (const struct sockaddr*)&socket_address, sizeof( socket_address ) ) < 0 )
+				{
+					fprintf( stderr, "Cannot bind.\n" );
+					close( rawsock );
+					continue;
+				}
+				struct ifreq ifr;
+				memset(&ifr, 0, sizeof(struct ifreq));
+
+				// BAD
+				//ifr.ifr_flags |= IFF_PROMISC;
+				//ioctl(rawsock, SIOCSIFFLAGS, &ifr);
+
+				// https://stackoverflow.com/questions/10070008/reading-from-pf-packet-sock-raw-with-read-misses-packets MAYBE?
+				struct packet_mreq mr = { 0 };
+				memset(&mr, 0, sizeof(mr));
+				mr.mr_ifindex = socket_address.sll_ifindex;
+				mr.mr_type = PACKET_MR_PROMISC;
+				if (setsockopt(rawsock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr, sizeof(mr)) < 0) {
+					fprintf( stderr, "Error setting packet membership\n" );
+				}
+
+
+				memset(&ifr, 0, sizeof(struct ifreq));
+				strncpy(ifr.ifr_name, ifname, IFNAMSIZ-1);
+				if( ioctl( rawsock, SIOCGIFHWADDR, &ifr ) < 0 )
+				{
+					fprintf( stderr, "Error: Couldn't get self-MAC\n" );
+					close( rawsock );
+					rawsock = 0;
+					continue;
+				}
+
+				memcpy( mymac, (char*)ifr.ifr_hwaddr.sa_data, 6 );
+				int rv = setsockopt( rawsock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname) );
+				printf( "SO_BINDTODEVICE: %d / dev index: %d / MAC: \n", rv, socket_address.sll_ifindex );
 			}
 
-			memcpy( mymac, (char*)ifr.ifr_hwaddr.sa_data, 6 );
-			int rv = setsockopt( rawsock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname) );
-			printf( "SO_BINDTODEVICE: %d / dev index: %d / MAC: \n", rv, socket_address.sll_ifindex );
 
 			setsockopt(rawsock, SOL_SOCKET, SO_SNDBUFFORCE, &(int){1}, sizeof(int));
 			setsockopt(rawsock, SOL_SOCKET, SO_RCVBUFFORCE, &(int){1}, sizeof(int));
@@ -202,19 +248,25 @@ void * HardwareThread( void * v )
 		//usleep(10000);
 
 		static uint8_t hwbuffer[10000] __attribute__((aligned(64)));
+		int rs;
+		if( USETAP )
+		{
+			rs = read( rawsock, (uint8_t*)&hwbuffer, sizeof( hwbuffer ) );
+		}
+		else
+		{
+			struct msghdr msg = { 0 };
+			struct iovec iov[1] = { 0 };
+			msg.msg_flags = 0;
+			msg.msg_name = 0;
+			msg.msg_namelen = 0;
+			iov[0].iov_base = &hwbuffer;
+			iov[0].iov_len = sizeof( hwbuffer ) - 1;
+			msg.msg_iov = iov;
+			msg.msg_iovlen = 1;
 
-		struct msghdr msg = { 0 };
-		struct iovec iov[1] = { 0 };
-		msg.msg_flags = 0;
-		msg.msg_name = 0;
-		msg.msg_namelen = 0;
-		iov[0].iov_base = &hwbuffer;
-		iov[0].iov_len = sizeof( hwbuffer ) - 1;
-		msg.msg_iov = iov;
-		msg.msg_iovlen = 1;
-
-		int rs = recvmsg( rawsock, &msg, 0 );
-
+			rs = recvmsg( rawsock, &msg, 0 );
+		}
 		if( rs < 0 )
 		{
 			eth_rx_fail++;
@@ -286,7 +338,7 @@ int main( int argc, char ** argv )
 		PrintStatus();
 		exit( -1 );
 	}
-
+	if( strncmp( ifname, "tap", 3 ) == 0 ) USETAP = 1;
 	og_thread_t * hardwareThread = OGCreateThread( HardwareThread, 0 );
 
 

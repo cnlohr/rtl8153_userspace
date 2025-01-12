@@ -198,12 +198,12 @@ static int InternalSendPacket( uint8_t * packet, int packetlen, int construct )
 	int tlen = packetlen + HEADER_SIZE;
 	//printf( "%d/%d\n", ((packetlen+63)+HEADER_SIZE), tlen );
 #ifdef TCP_MODE
-	return send( host_socket, dtos, tlen, MSG_NOSIGNAL );
+	return send( host_socket, dtos, tlen, MSG_NOSIGNAL | MSG_DONTWAIT );
 #else
 	if( is_server && lastpeer.sin_port )
-		return sendto( host_socket, dtos, tlen, MSG_NOSIGNAL, (struct sockaddr*)&lastpeer, sizeof(lastpeer) );
+		return sendto( host_socket, dtos, tlen, MSG_NOSIGNAL | MSG_DONTWAIT, (struct sockaddr*)&lastpeer, sizeof(lastpeer) );
 	else
-		return send( host_socket, dtos, tlen, MSG_NOSIGNAL );
+		return send( host_socket, dtos, tlen, MSG_NOSIGNAL | MSG_DONTWAIT );
 #endif
 }
 
