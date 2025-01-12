@@ -166,6 +166,11 @@ static int Internal_BulkRequest( void * handle, int ep, uint8_t * data, int len,
 #define OCP_PHY_STATUS		0xa420
 #define OCP_PHY_STATE		0xa708
 
+#define PLA_IDR			0xc000
+#define PLA_RCR			0xc010
+#define PLA_RCR1		0xc012
+#define PLA_RMS			0xc016
+
 #define OCP_BASE		0xe86c
 
 #  if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -322,6 +327,202 @@ static int r8153_ecm_mdio_write(void * iface, int reg, int val)
 }
 
 
+
+//XXX TODO: Rewrite these
+#define BYTE_EN_DWORD		0xff
+#define BYTE_EN_WORD		0x33
+#define BYTE_EN_BYTE		0x11
+#define BYTE_EN_SIX_BYTES	0x3f
+#define BYTE_EN_START_MASK	0x0f
+#define BYTE_EN_END_MASK	0xf0
+static int generic_ocp_write(void *tp, uint16_t index, uint16_t byteen,
+			     uint16_t size, void *data, uint16_t type)
+{
+	int ret;
+	uint16_t byteen_start, byteen_end, byen;
+	uint16_t limit = 512;
+
+//	if (test_bit(RTL8152_UNPLUG, &tp->flags))
+//		return -ENODEV;
+
+	/* both size and indix must be 4 bytes align */
+	if ((size & 3) || !size || (index & 3) || !data) {
+		fprintf( stderr, "Malformed request (1)\n" );
+		//WARN_ON_ONCE(1);
+		return -EPERM;
+	}
+
+	if ((uint32_t)index + (uint32_t)size > 0xffff)
+	{
+		fprintf( stderr, "Malformed request (2)\n" );
+		return -EPERM;
+	}
+
+	byteen_start = byteen & BYTE_EN_START_MASK;
+	byteen_end = byteen & BYTE_EN_END_MASK;
+
+	byen = byteen_start | (byteen_start << 4);
+
+	/* Split the first DWORD if the byte_en is not 0xff */
+	if (byen != BYTE_EN_DWORD) {
+		ret = set_registers(tp, index, type | byen, 4, data);
+		if (ret < 0)
+			goto error1;
+
+		index += 4;
+		data += 4;
+		size -= 4;
+	}
+
+	if (size) {
+		byen = byteen_end | (byteen_end >> 4);
+
+		/* Split the last DWORD if the byte_en is not 0xff */
+		if (byen != BYTE_EN_DWORD)
+			size -= 4;
+
+		while (size) {
+			if (size > limit) {
+				ret = set_registers(tp, index,
+						    type | BYTE_EN_DWORD,
+						    limit, data);
+				if (ret < 0)
+					goto error1;
+
+				index += limit;
+				data += limit;
+				size -= limit;
+			} else {
+				ret = set_registers(tp, index,
+						    type | BYTE_EN_DWORD,
+						    size, data);
+				if (ret < 0)
+					goto error1;
+
+				index += size;
+				data += size;
+				size = 0;
+				break;
+			}
+		}
+
+		/* Set the last DWORD */
+		if (byen != BYTE_EN_DWORD)
+			ret = set_registers(tp, index, type | byen, 4, data);
+	}
+
+error1:
+	if (ret == -ENODEV)
+	{
+		fprintf( stderr, "ERROR: ENODEV\n" );
+		//rtl_set_unplug(tp);
+	}
+
+	if (ret < 0)
+		fprintf( stderr,
+			"write type=0x%04x, index=0x%04x fail %d\n",
+			type | byteen, index, ret);
+
+	return ret;
+}
+
+static int ocp_write_word(void *tp, uint16_t type, uint16_t index, uint32_t data)
+{
+	uint16_t byen = BYTE_EN_WORD;
+	uint8_t shift = index & 2;
+	uint32_t mask = 0xffff;
+	__le32 tmp;
+	int ret;
+
+	data &= mask;
+
+	if (shift) {
+		byen <<= shift;
+		data <<= (shift * 8);
+		index &= ~3;
+	}
+
+	tmp = htoll(data);
+
+	ret = generic_ocp_write(tp, index, byen, sizeof(tmp), &tmp, type);
+	//WARN_ON_ONCE(ret != sizeof(tmp));
+
+	return ret;
+}
+
+
+
+static int generic_ocp_read(void *tp, uint16_t index, uint16_t size,
+			    void *data, uint16_t type)
+{
+	uint16_t limit = 64;
+	int ret = 0;
+
+//	if (test_bit(RTL8152_UNPLUG, &tp->flags))
+	//	return -ENODEV;
+
+	/* both size and indix must be 4 bytes align */
+	if ((size & 3) || !size || (index & 3) || !data) {
+		//WARN_ON_ONCE(1);
+		return -EPERM;
+	}
+
+	if ((uint32_t)index + (uint32_t)size > 0xffff)
+		return -EPERM;
+
+	while (size) {
+		if (size > limit) {
+			ret = get_registers(tp, index, type, limit, data);
+			if (ret < 0)
+				break;
+
+			index += limit;
+			data += limit;
+			size -= limit;
+		} else {
+			ret = get_registers(tp, index, type, size, data);
+			if (ret < 0)
+				break;
+
+			index += size;
+			data += size;
+			size = 0;
+			break;
+		}
+	}
+
+//	if (ret == -ENODEV)
+		//rtl_set_unplug(tp);
+
+	if (ret < 0)
+		fprintf( stderr,
+			"read type=0x%04x, index=0x%04x fail %d\n",
+			type, index, ret);
+
+	return ret;
+}
+static int ocp_read_word(void *tp, uint16_t type, uint16_t index, uint32_t *value)
+{
+	uint16_t byen = BYTE_EN_WORD;
+	uint8_t shift = index & 2;
+	uint32_t tmp;
+	uint32_t data;
+	int ret;
+
+	index &= ~3;
+	byen <<= shift;
+
+	ret = generic_ocp_read(tp, index, sizeof(tmp), &tmp, type | byen);
+//	WARN_ON_ONCE(ret != sizeof(tmp));
+
+	data = ltohl(tmp);
+	data >>= (shift * 8);
+	data &= 0xffff;
+
+	*value = (uint16_t)data;
+
+	return ret;
+}
 // Ok done with GPL land.
 
 
@@ -787,6 +988,45 @@ int SoftRNDISConnect()
 
 	// Accept all packets (in CDC-ECM mode)
 	Internal_Control_Transfer( iface, 0x21, SET_ETHERNET_PACKET_FILTER, 0x1f, 0, 0, 0, 500);
+
+#define PLA_IDR			0xc000
+#define PLA_RCR			0xc010
+#define PLA_RCR1		0xc012
+#define PLA_RMS			0xc016
+
+#define PLA_TCR1		0xe612 // Has jumbo information and other stuff
+
+//#define PLA_MTPS		0xe615
+#define MTPS_JUMBO		(12 * 1024 / 64)
+#define RTL8153_MAX_PACKET	9216 /* 9K */
+
+	printf( "OCRW %d\n", ocp_write_word(iface, MCU_TYPE_PLA, PLA_RMS, RTL8153_MAX_PACKET) );
+	uint32_t v;
+	printf( "OCRW %d\n", ocp_read_word(iface, MCU_TYPE_PLA, PLA_RMS, &v) );
+	printf( "OCRW %d\n", v );
+
+	// Does not care about VLAN_ETH_HLEN + ETH_FCS_LEN.
+#if 0
+
+#if 1
+
+#define RTL8153_MAX_PACKET	9216 /* 9K */
+	printf( "OCP MTU Original: %08x\n", pla_read_word( iface, PLA_RMS ) );
+	printf( "OCP MTU: %d\n", pla_write_word( iface, PLA_RMS, RTL8153_MAX_PACKET ) );
+	printf( "OCP MTU: %08x\n", pla_read_word( iface, PLA_RMS ) );
+
+#if 1
+	//printf( "OCP JUMB: %d\n", pla_write_byte( iface, PLA_MTPS, MTPS_JUMBO) );
+	uint32_t TCR1x = pla_read_word( iface, PLA_TCR1 );
+	printf( "OCP JUMB ORIG: %08x\n", TCR1x );
+	printf( "OCP JUMB: %d\n", pla_write_word( iface, PLA_TCR1, (MTPS_JUMBO<<24) | TCR1x ) );
+	TCR1x = pla_read_word( iface, PLA_TCR1 );
+	printf( "OCP JUMB: %08x\n", TCR1x );
+#endif
+#endif
+
+
+#endif
 
 	return (!deviceConnectionFD)?-5:0;
 

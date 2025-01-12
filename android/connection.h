@@ -236,6 +236,11 @@ static void * ConnectionThread( void * c )
 					continue;
 				}
 
+				setsockopt(host_socket, SOL_SOCKET, SO_SNDBUFFORCE, &(int){1}, sizeof(int));
+				setsockopt(host_socket, SOL_SOCKET, SO_RCVBUFFORCE, &(int){1}, sizeof(int));
+				setsockopt(host_socket, SOL_SOCKET, SO_SNDBUF, &(int){1024*1024*10}, sizeof(int));
+				setsockopt(host_socket, SOL_SOCKET, SO_RCVBUF, &(int){1024*1024*10}, sizeof(int));
+
 				printf( "Server Connected\n" );
 			}
 			else

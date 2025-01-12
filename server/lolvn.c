@@ -166,6 +166,11 @@ void * HardwareThread( void * v )
 			int rv = setsockopt( rawsock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname) );
 			printf( "SO_BINDTODEVICE: %d / dev index: %d / MAC: \n", rv, socket_address.sll_ifindex );
 
+			setsockopt(rawsock, SOL_SOCKET, SO_SNDBUFFORCE, &(int){1}, sizeof(int));
+			setsockopt(rawsock, SOL_SOCKET, SO_RCVBUFFORCE, &(int){1}, sizeof(int));
+			setsockopt(rawsock, SOL_SOCKET, SO_SNDBUF, &(int){1024*1024*10}, sizeof(int));
+			setsockopt(rawsock, SOL_SOCKET, SO_RCVBUF, &(int){1024*1024*10}, sizeof(int));
+
 			connected_raw = 1;
 		}
 		//usleep(10000);
