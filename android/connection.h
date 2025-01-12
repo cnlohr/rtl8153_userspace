@@ -306,7 +306,7 @@ static void * ConnectionThread( void * c )
 					continue;
 				}
 
-				printf( "Client Connected\n" );
+				printf( "Client Connected (%d)\n", host_socket );
 			}
 
 			setsockopt(host_socket, SOL_SOCKET, SO_SNDBUFFORCE, &(int){1}, sizeof(int));
@@ -332,7 +332,7 @@ static void * ConnectionThread( void * c )
 			do
 			{
 				r = recv( host_socket, bptr + bptrofs, headersize - bptrofs, MSG_NOSIGNAL );
-				if( r <= 0 ) printf( "STR A: %s %d\n", strerror( errno ) , errno );
+				if( r <= 0 ) printf( "STR A: %s %d sock:%d (%d %d)\n", strerror( errno ), host_socket , errno, bptrofs, headersize );
 				if( r <= 0 ) break;
 				bptrofs += r;
 			} while( bptrofs < headersize );
@@ -364,7 +364,7 @@ static void * ConnectionThread( void * c )
 				do
 				{
 					r = recv( host_socket, bptr + bptrofs, size - bptrofs, MSG_NOSIGNAL );
-					if( r <= 0 ) printf( "STR B: %s %d\n", strerror( errno ) , errno );
+					if( r <= 0 ) printf( "STR B: %s %d (%d %d)\n", strerror( errno ) , errno, bptrofs, size );
 					if( r <= 0 ) break;
 					bptrofs += r;
 				} while( bptrofs < size );
