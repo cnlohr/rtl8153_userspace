@@ -311,6 +311,7 @@ void * HardwareThread( void * v )
 #endif
 			if( allow )
 			{
+				//printf("RS: %d\n",rs );
 				ConnectionSendPacket( hwbuffer, rs );
 				eth_rx_pass++;
 			}
