@@ -236,6 +236,45 @@ int main( int argc, char ** argv )
 		if( !AndroidHasPermissions("INTERNET") ) AndroidRequestAppPermissions( "INTERNET" );
 	}
 
+	{
+		// Demand wake lock
+		const struct JNINativeInterface * env = 0;
+		const struct JNINativeInterface ** envptr = &env;
+		const struct JNIInvokeInterface ** jniiptr = gapp->activity->vm;
+		const struct JNIInvokeInterface * jnii = *jniiptr;
+
+		jnii->AttachCurrentThread( jniiptr, &envptr, NULL);
+		env = (*envptr);
+		jclass activityClass = env->FindClass( envptr, "android/app/NativeActivity");
+		jobject lNativeActivity = gapp->activity->clazz;
+		jobject activity = gapp->activity->clazz;
+
+		// PowerManager pm = mContext.getSystemService(PowerManager.class);
+		jclass ClassContext = env->FindClass( envptr, "android/content/Context" );
+		jfieldID lid_POWER_SERVICE = env->GetStaticFieldID( envptr, ClassContext, "POWER_SERVICE", "Ljava/lang/String;" );
+		jobject POWER_SERVICE = env->GetStaticObjectField( envptr, ClassContext, lid_POWER_SERVICE );
+		jmethodID MethodgetSystemService = env->GetMethodID( envptr, ClassContext, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;" );
+		jobject powerService = env->CallObjectMethod( envptr, lNativeActivity, MethodgetSystemService, POWER_SERVICE);
+			//Actually returns an android/hardware/usb/UsbManager
+
+		jstring string_usb_app = env->NewStringUTF( envptr, "usb_app" );
+		jclass ClassPM = env->FindClass( envptr, "android/os/PowerManager" );
+		//DumpObjectClassProperties( powerService );
+		// newWakeLock( int, java.lang.String ) -> android.os.PowerManager$WakeLock
+		jmethodID MethodnewWakeLock = env->GetMethodID( envptr, ClassPM, "newWakeLock", "(ILjava/lang/String;)Landroid/os/PowerManager$WakeLock;" );
+		jobject wakeLock = env->CallObjectMethod( envptr, powerService, MethodnewWakeLock,
+			1 /* PARTIAL_WAKE_LOCK */,
+			string_usb_app );
+		jclass ClassWakeLock = env->FindClass( envptr, "android/os/PowerManager$WakeLock" );
+		jmethodID MethodAcquire = env->GetMethodID( envptr, ClassWakeLock, "acquire", "()V" );
+
+		DumpObjectClassProperties( wakeLock );
+		env->CallVoidMethod( envptr, wakeLock, MethodAcquire );
+
+		JAVA_CALL_DETACH
+
+	}
+
 #if 0
 	// Me seeing if I can get more permissions.
 //android.hardware.usb.host
@@ -273,6 +312,16 @@ int main( int argc, char ** argv )
 	while(!terminate && CNFGHandleInput())
 	{
 		iframeno++;
+
+		double advanceDelta = ThisTime - dTimeSinceAdvance;
+		if( advanceDelta > 0.1 )
+		{
+			histtimes[clockhead] = ThisTime;
+			clockhead = ( clockhead + 1) % LOGHIST;
+			datatx[clockhead] = 0;
+			datarx[clockhead] = 0;
+			if( advanceDelta > 1 ) { dTimeSinceAdvance = ThisTime; } else { dTimeSinceAdvance += 0.1; }
+		}
 
 		if( suspended ) { usleep(50000); continue; }
 
@@ -345,15 +394,6 @@ int main( int argc, char ** argv )
 			DrawGraph( 20, 1600, 1000, 300, datarx, 0xff00ffff, "RX" );
 		}
 
-		double advanceDelta = ThisTime - dTimeSinceAdvance;
-		if( advanceDelta > 0.1 )
-		{
-			histtimes[clockhead] = ThisTime;
-			clockhead = ( clockhead + 1) % LOGHIST;
-			datatx[clockhead] = 0;
-			datarx[clockhead] = 0;
-			if( advanceDelta > 1 ) { dTimeSinceAdvance = ThisTime; } else { dTimeSinceAdvance += 0.1; }
-		}
 
 		CNFGSetLineWidth( 2 );
 		// Square behind text
