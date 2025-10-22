@@ -1,6 +1,13 @@
+Mostly MIT but mixed.
+
+All code in this library EXCEPT for some functions that are cribbed from
+r8153_ecm.c, distributed under the GPLv2 license.
+
+Everything else:
+
 MIT License
 
-Copyright (c) 2025 cnlohr
+Copyright (c) 2025 cnlohr, Michael Bishop (for chacha20.h)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
