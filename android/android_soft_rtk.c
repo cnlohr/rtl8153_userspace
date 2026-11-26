@@ -856,7 +856,7 @@ int SoftRNDISConnect()
 		jobject configuration = env->CallObjectMethod( envptr, matchingDevice, MethodgetConfiguration, i );
 		int id = env->CallIntMethod( envptr, configuration, MethodconfigurationgetId );
 		printf( "Found Configuration with ID: %d\n", id );
-		if( id == 2 ) //XXX TODO FIDDLE WITH ME
+		if( id == 1 ) //XXX TODO FIDDLE WITH ME
 		{
 			matchingConfiguration = configuration;
 		}
