@@ -146,6 +146,7 @@ static int ConnectionSendPacket( uint8_t * packet, int packetlen )
 		int r = InternalSendPacket( packet, packetlen, 0 );
 		if( r < 0 )	
 		{
+			printf( "InternalSendPacket() = %d\n", r );
 			if( failed_in_a_row++ > 40 ) host_connected = 0;
 			conn_cnt_txfail++;
 		}
@@ -405,7 +406,7 @@ static void * ConnectionThread( void * c )
 #endif
 		if( r <= 0 )
 		{
-			printf( "R %d <= 0\n", r );
+			printf( "R %d <= 0 (on socket %d, is server: %d)\n", r, host_socket, is_server );
 			host_connected = 0;
 			conn_cnt_rxfail++;
 			shutdown( host_socket, SHUT_RDWR );

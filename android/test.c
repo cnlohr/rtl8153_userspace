@@ -268,7 +268,7 @@ int main( int argc, char ** argv )
 		jclass ClassWakeLock = env->FindClass( envptr, "android/os/PowerManager$WakeLock" );
 		jmethodID MethodAcquire = env->GetMethodID( envptr, ClassWakeLock, "acquire", "()V" );
 
-		DumpObjectClassProperties( wakeLock );
+		//DumpObjectClassProperties( wakeLock );
 		env->CallVoidMethod( envptr, wakeLock, MethodAcquire );
 
 		JAVA_CALL_DETACH
@@ -415,7 +415,7 @@ int main( int argc, char ** argv )
 
 		if( ThisTime > LastFPSTime + 1 )
 		{
-			printf( "FPS: %d\n", frames );
+			//printf( "FPS: %d\n", frames );
 			frames = 0;
 			LastFPSTime+=1;
 		}
