@@ -236,7 +236,7 @@ enum cdc_commands
 //////////////////////////////////////////////////////////////////////////////
 
 // This code is "based on" r8153_ecm.c which is GPL licensed, from the Linux kernel.
-// But, I kinda rewrote it, so it's writing it to the "spec" but not really the same way.
+// It's been pretty heavily once-overed'd.  But still would potentially be entangled.
 
 static int get_registers( void * handle, uint16_t value, uint16_t index, uint16_t size, void *data )
 {
