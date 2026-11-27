@@ -127,9 +127,11 @@ void DrawGraph( int sox, int soy, int w, int h, int * history, uint32_t linecolo
 	double last = h - first * (h-20) / maxtx - 10;
 	double dNow = OGGetAbsoluteTime();
 	double dBytesOverOneSecond = first;
+	double dBytesTotal = 0;
 	for( i = 1; i < window; i++ )
 	{
 		dBytesOverOneSecond += (dNow - histtimes[idx] < 1 ) ? history[idx] : 0;
+		dBytesTotal += history[idx];
 		idx = (idx - 1 + LOGHIST) % LOGHIST;
 		double dy = h - history[idx] * (h-20) / maxtx - 10;
 		CNFGTackSegment( i + 10+sox, last + soy + 10, i + 11+sox, dy+soy+10 );
@@ -142,6 +144,19 @@ void DrawGraph( int sox, int soy, int w, int h, int * history, uint32_t linecolo
 	char cts[1024];
 	snprintf( cts, sizeof(cts), "%.3f MBit/s %s\n", dBytesOverOneSecond*8/1000000.0, title );
 	CNFGDrawText( cts, 9 );	
+
+
+	snprintf( cts, sizeof(cts), "%.3f MBits/s", maxtx * 8 / 1000000.0 );
+	int tw,th;
+	CNFGGetTextExtents( cts, &tw, &th, 9 );
+	CNFGPenX = w - tw;
+	CNFGDrawText( cts, 9 );
+
+	snprintf( cts, sizeof(cts), "%.3f MBytes", dBytesTotal/1000000.0 );
+	CNFGGetTextExtents( cts, &tw, &th, 9 );
+	CNFGPenX = w - tw;
+	CNFGPenY = soy + h - 48;
+	CNFGDrawText( cts, 9 );
 }
 
 
@@ -215,7 +230,6 @@ int main( int argc, char ** argv )
 	printf( "Starting Up\n" );
 
 	CNFGSetup( "Test Bench", -1, -1 );
-	
 	HandleWindowTermination = HandleThisWindowTermination;
 
 	printf( "Startup Complete\n" );
@@ -314,7 +328,7 @@ int main( int argc, char ** argv )
 		iframeno++;
 
 		double advanceDelta = ThisTime - dTimeSinceAdvance;
-		if( advanceDelta > 0.1 )
+		if( advanceDelta > 1.0 )
 		{
 			histtimes[clockhead] = ThisTime;
 			clockhead = ( clockhead + 1) % LOGHIST;
