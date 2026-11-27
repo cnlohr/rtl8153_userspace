@@ -619,7 +619,7 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 
 #define DGISIZE 32768
 	errno = 0;
-	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 100 );
+	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 1000 );
 	if( r >= 0 )
 	{
 		int declenn;
