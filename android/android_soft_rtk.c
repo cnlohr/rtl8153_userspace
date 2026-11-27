@@ -25,7 +25,7 @@ int64_t rtk_dbg_ctr_send_bytes = 0;
 int64_t rtk_dbg_ctr_recv_bytes = 0;
 int64_t rtk_dbg_restarts = 0;
 
-int g_toggle_id; // togles between 0 and 1, not sure why you have to go back and forth.
+int g_toggle_id = 10; // togles between 0 and 1, not sure why you have to go back and forth.
 
 #define USBFS_DISCONNECT_CLAIM_IF_DRIVER	0x01
 #define USBFS_DISCONNECT_CLAIM_EXCEPT_DRIVER	0x02
@@ -619,7 +619,7 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 
 #define DGISIZE 32768
 	errno = 0;
-	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 1000 );
+	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 100 );
 	if( r >= 0 )
 	{
 		int declenn;
@@ -857,7 +857,7 @@ int SoftRNDISConnect()
 		jobject configuration = env->CallObjectMethod( envptr, matchingDevice, MethodgetConfiguration, i );
 		int id = env->CallIntMethod( envptr, configuration, MethodconfigurationgetId );
 		printf( "Found Configuration with ID: %d\n", id );
-		if( id == 2 ) //XXX TODO FIDDLE WITH ME
+		if( id == ((g_toggle_id>>2)&3) ) //XXX TODO FIDDLE WITH ME
 		{
 			matchingConfiguration = configuration;
 		}
@@ -867,7 +867,7 @@ int SoftRNDISConnect()
 	{
 		ats+=sprintf(ats, "No matching configuration\n" );
 		printf( "NO MATCHING CONFIGURATION\n" );
-		return -9;
+		//return -9;
 	}
 
 	printf( "Found matching configuration\n" );
@@ -886,13 +886,16 @@ int SoftRNDISConnect()
 
 		printf( "  Found interface with id: %d na: %s st: %s\n", id, name, st );
 
-		if( id == g_toggle_id ) //XXX TODO FIDDLE WITH ME  TODO: Switch from 0 to 1, it will not work right then go back to 0.
+		if( id == ((g_toggle_id&2)>>1) ) //XXX TODO FIDDLE WITH ME  TODO: Switch from 0 to 1, it will not work right then go back to 0.
 		{
 			matchingInterface = interface;
 		}
 	}
 
 	int j;
+
+	printf( "g_toggle_id = %d\n", g_toggle_id );
+	g_toggle_id++;
 
 	deviceConnection = env->CallObjectMethod( envptr, manager, MethodopenDevice, matchingDevice );
 	if( !deviceConnection )
@@ -901,8 +904,6 @@ int SoftRNDISConnect()
 		goto requestPermission;
 	}
 
-
-	g_toggle_id = !g_toggle_id;
 	if( matchingInterface )
 	{
 		printf( "setting and claiming %d %d\n", deviceConnection, matchingInterface );
@@ -919,13 +920,20 @@ int SoftRNDISConnect()
 	}
 
 
-	printf( "Matching Configuration: %d\n", matchingConfiguration );
+	if( matchingConfiguration )
+	{
+		printf( "Matching Configuration: %d\n", matchingConfiguration );
 
-	jboolean configOk = env->CallBooleanMethod( envptr, deviceConnection,
-		MethodsetConfiguration, matchingConfiguration );
+		jboolean configOk = env->CallBooleanMethod( envptr, deviceConnection,
+			MethodsetConfiguration, matchingConfiguration );
 
-	printf( "MethodsetConfiguration OK: %d\n", configOk );
-	ats+=sprintf(ats, "Config OK: %d\n", configOk );
+		printf( "MethodsetConfiguration OK: %d\n", configOk );
+		ats+=sprintf(ats, "Config OK: %d\n", configOk );
+	}
+	else
+	{
+		ats+=sprintf(ats, "Config OK: **\n" );
+	}
 
 	deviceConnectionFD = env->CallIntMethod( envptr, deviceConnection, MethodgetFileDescriptor );
 	deviceConnection = env->NewGlobalRef(envptr, deviceConnection);

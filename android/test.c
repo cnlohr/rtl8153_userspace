@@ -66,9 +66,13 @@ void HandleButton( int x, int y, int button, int bDown )
 
 	if( bDown ) {
 		// keyboard_up = !keyboard_up; AndroidDisplayKeyboard( keyboard_up );
-		uint8_t test_packet[64] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xab, 0xcd, 0x00, 0x01, 0x02, 0x03, 0x08, 0x80, 0x45 };
-		printf( "SEND: %d\n", SoftRNDISSend( 0, test_packet, sizeof( test_packet ) ) );
+		//uint8_t test_packet[64] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xab, 0xcd, 0x00, 0x01, 0x02, 0x03, 0x08, 0x80, 0x45 };
+		//printf( "SEND: %d\n", SoftRNDISSend( 0, test_packet, sizeof( test_packet ) ) );
 
+			usleep(1000);
+			SoftRNDISClose();
+			usleep(1000);
+			SoftRNDISConnect();
 	}
 }
 
