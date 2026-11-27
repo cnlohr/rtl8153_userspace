@@ -614,12 +614,12 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 
 	if( !deviceConnectionFD ) return 0;
 
-	static uint8_t packetbuffer[12000];
+	static uint8_t packetbuffer[48000];
 	static int lastptr = 0;
 
-#define DGISIZE 8192
+#define DGISIZE 32768
 	errno = 0;
-	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 1 );
+	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 100 );
 	if( r >= 0 )
 	{
 		int declenn;
