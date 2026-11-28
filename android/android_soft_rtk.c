@@ -25,7 +25,7 @@ int64_t rtk_dbg_ctr_send_bytes = 0;
 int64_t rtk_dbg_ctr_recv_bytes = 0;
 int64_t rtk_dbg_restarts = 0;
 
-int g_toggle_id = 10; // togles between 0 and 1, not sure why you have to go back and forth.
+int g_toggle_id = 12; // togles between 0 and 1, not sure why you have to go back and forth.
 
 #define USBFS_DISCONNECT_CLAIM_IF_DRIVER	0x01
 #define USBFS_DISCONNECT_CLAIM_EXCEPT_DRIVER	0x02
@@ -614,12 +614,15 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 
 	if( !deviceConnectionFD ) return 0;
 
-	static uint8_t packetbuffer[48000];
+	static uint8_t packetbuffer[80000];
+
+#if 0
 	static int lastptr = 0;
 
-#define DGISIZE 32768
+#define DGISIZE 65536
 	errno = 0;
 	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 100 );
+printf( "AAA %d\n", r );
 	if( r >= 0 )
 	{
 		int declenn;
@@ -635,7 +638,8 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 			}
 			printf( "\n" );
 #endif
-			if( declenn > 10000 )
+			printf( "AAA B %d %d   %d %d\n", declenn > 50000, lastptr < declenn + 24, declenn, lastptr );
+			if( declenn > r )
 			{
 				rtk_dbg_ctr_parse_fault++;
 				lastptr = 0;
@@ -645,6 +649,7 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 			SoftRNDISReceived( 0, packetbuffer + 24, declenn );
 			rtk_dbg_ctr_recv_bytes += declenn;
 			rtk_dbg_ctr_recv_cnt++;
+
 
 			int to_remove = declenn+24;
 
@@ -669,6 +674,55 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 		if( errno != 110 )
 			rtk_dbg_ctr_recv_fault++;
 	}
+#else
+	// Simpler logic, doesn't support frame splits.
+
+#define DGISIZE 65536
+	errno = 0;
+	int r = Internal_BulkRequest( iface, 0x81, packetbuffer, DGISIZE, 100 );
+	uint8_t * pbr = packetbuffer;
+	if( r >= 0 )
+	{
+		int declenn;
+		do
+		{
+			declenn = pbr[0] + (pbr[1]<<8);
+
+			if( declenn >= r-(pbr-packetbuffer) )
+			{
+				rtk_dbg_ctr_parse_fault++;
+				break;
+			}
+			//if( lastptr < declenn + 24 ) break; // 24 = wacky Realtek header size.
+			SoftRNDISReceived( 0, packetbuffer + 24, declenn );
+			rtk_dbg_ctr_recv_bytes += declenn;
+			rtk_dbg_ctr_recv_cnt++;
+
+			int to_remove = declenn+24;
+			pbr += to_remove;
+/*
+
+			// Round up if possible.
+			int to_remove_roundup = (to_remove + 8) & ~7;
+			if( lastptr >= to_remove_roundup ) to_remove = to_remove_roundup;
+
+			for( i = 0; i < lastptr - to_remove; i++ )
+			{
+				packetbuffer[i] = packetbuffer[i+to_remove];
+			}
+			//printf( "Processed / remove: %d %d\n", lastptr, to_remove );
+			lastptr -= to_remove; */
+		} while( r-(pbr-packetbuffer) > 24 );
+
+	}
+	else
+	{
+		if( errno != 110 )
+			rtk_dbg_ctr_recv_fault++;
+	}
+
+#endif
+
 	return 0;
 }
 
