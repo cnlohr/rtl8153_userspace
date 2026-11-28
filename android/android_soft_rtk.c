@@ -616,13 +616,13 @@ static int Internal_SoftRNDISHandleRX( int timeout )
 
 	static uint8_t packetbuffer[80000];
 
-#if 0
+#if 1
 	static int lastptr = 0;
 
 #define DGISIZE 65536
 	errno = 0;
 	int r = Internal_BulkRequest( iface, 0x81, packetbuffer + lastptr, DGISIZE, 100 );
-printf( "AAA %d\n", r );
+//printf( "AAA %d\n", r );
 	if( r >= 0 )
 	{
 		int declenn;
@@ -638,14 +638,21 @@ printf( "AAA %d\n", r );
 			}
 			printf( "\n" );
 #endif
-			printf( "AAA B %d %d   %d %d\n", declenn > 50000, lastptr < declenn + 24, declenn, lastptr );
+			//printf( "AAA B %d %d   %d %d\n", declenn > 50000, lastptr < declenn + 24, declenn, lastptr );
 			if( declenn > r )
 			{
 				rtk_dbg_ctr_parse_fault++;
 				lastptr = 0;
 				break;
 			}
-			if( lastptr < declenn + 24 ) break; // 24 = wacky Realtek header size.
+			if( lastptr < declenn + 24 )
+			{
+				// Something probably went wrong, the dongle doesn't split first packets.
+				// Things seem to go wrong a lot.  I think the kernel sometimes swoops in.
+				rtk_dbg_ctr_parse_fault++;
+				lastptr = 0;				
+				break;
+			} // 24 = wacky Realtek header size.
 			SoftRNDISReceived( 0, packetbuffer + 24, declenn );
 			rtk_dbg_ctr_recv_bytes += declenn;
 			rtk_dbg_ctr_recv_cnt++;
